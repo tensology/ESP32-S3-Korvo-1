@@ -1,0 +1,2 @@
+source /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader/gdbinit/symbols
+source /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader/gdbinit/connect

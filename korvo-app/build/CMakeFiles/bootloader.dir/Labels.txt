@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/CMakeFiles/bootloader
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/CMakeFiles/bootloader.rule
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/CMakeFiles/bootloader-complete.rule
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule

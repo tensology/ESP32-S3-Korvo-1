@@ -1,0 +1,3 @@
+# Korvo App — ESP32 target specifics
+CONFIG_ESP_INT_WDT_TIMEOUT_MS=10000
+# CONFIG_ESP_INT_WDT_CHECK_CPU1 is not set

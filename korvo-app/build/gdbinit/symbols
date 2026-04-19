@@ -1,0 +1,9 @@
+
+
+# Load bootloader symbols
+set confirm off
+    add-symbol-file /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/bootloader/bootloader.elf
+set confirm on
+
+# Load application symbols
+file /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/korvo-app.elf
