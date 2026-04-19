@@ -318,7 +318,7 @@
       </h2>
       <div class="row">
         <div class="field">
-          <label>Serial Port</label>
+          <label>Serial port (flash only — <code>idf.py build</code> does not use this). If you have two USB-UART cables, pick the one on the Korvo you are watching; the list prefers <code>usbserial</code> over <code>SLAB</code>.</label>
           <select id="serialPort"></select>
         </div>
         <div class="field">
@@ -326,9 +326,16 @@
           <button class="btn-secondary" onclick="loadPorts()">Refresh Ports</button>
         </div>
       </div>
+      <div class="field" style="margin-bottom:0.75rem">
+        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-weight:normal">
+          <input type="checkbox" id="flashCleanBefore" style="width:auto">
+          Ninja clean before build (full recompile — use when the UI builds instantly but you expect a long compile)
+        </label>
+      </div>
       <div class="btn-row">
         <button class="btn-primary" onclick="buildAndFlash()" id="flashBtn">🔨 Build & Flash to Board</button>
       </div>
+      <p style="font-size:0.75rem;opacity:0.7;margin:0.4rem 0 0.8rem;line-height:1.35;">Runs on this Mac (same as terminal). If this hangs or shows nothing, open <a href="/api/flash/diag" target="_blank" rel="noopener">/api/flash/diag</a> — <code>idf_py</code> must be non-empty.</p>
 
       <!-- Live Terminal -->
       <div class="terminal" id="terminal">
@@ -349,13 +356,14 @@
         <span class="badge disconnected" id="audioBadge">Not connected</span>
       </h2>
       <div class="field">
-        <label>Korvo Board Hostname / IP</label>
-        <input type="text" id="boardIp" value="korvo.local" placeholder="korvo.local or 192.168.x.x" style="margin-bottom: 1rem;">
+        <label>Korvo host (<code>korvo.local</code> works on macOS / same LAN when mDNS is on; use a numeric IP if your browser cannot resolve <code>.local</code>)</label>
+        <input type="text" id="boardIp" value="" placeholder="korvo.local or 192.168.1.27" style="margin-bottom: 1rem;">
       </div>
       <button class="btn-primary" id="audioBtn" onclick="toggleAudioStream()" style="width:100%;padding:0.8rem;">▶️ Start Audio Stream</button>
       <div style="margin-top:1rem;position:relative;">
-        <audio id="audioPlayer" controls style="width:100%;"></audio>
+        <audio id="audioPlayer" controls crossorigin="anonymous" preload="none" style="width:100%;"></audio>
       </div>
+      <p style="font-size:0.75rem;opacity:0.75;margin-top:0.5rem;line-height:1.4;">Firmware sends 16 kHz mono PCM in a WAV container. An older build advertised four channels by mistake, so the in-browser player often sounded empty or wrong; rebuild and flash. If Safari/Chrome still misbehaves on a never-ending stream, use <code>ffplay -nodisp</code> with the same stream URL.</p>
       <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
         <button class="btn-secondary speed-btn" onclick="adjustPlaybackSpeed(0.5)">0.5x</button>
         <button class="btn-secondary speed-btn active" onclick="adjustPlaybackSpeed(1.0)">1.0x</button>
@@ -541,9 +549,20 @@
       if (data.agent_endpoint) document.getElementById('agentEndpoint').value = data.agent_endpoint;
       if (data.led_brightness) document.getElementById('ledBrightness').value = data.led_brightness;
       if (data.volume) document.getElementById('volume').value = data.volume;
+      let host = (data.esp_ip || '').trim();
+      if (!host) host = (localStorage.getItem('korvo_esp_ip') || '').trim();
+      if (!host) host = (document.getElementById('espIpInput').value || 'korvo.local').trim();
+      document.getElementById('espIpInput').value = host;
+      espIp = host;
+      localStorage.setItem('korvo_esp_ip', host);
     }
 
     async function saveSettings() {
+      const espHost = document.getElementById('espIpInput').value.trim();
+      if (espHost) {
+        espIp = espHost;
+        localStorage.setItem('korvo_esp_ip', espHost);
+      }
       const settings = {
         wake_word: document.getElementById('wakeWord').value,
         server_port: document.getElementById('serverPort').value,
@@ -582,81 +601,22 @@
           opt.value = p; opt.textContent = p;
           select.appendChild(opt);
         });
+        const saved = (localStorage.getItem('korvo_flash_port') || '').trim();
+        let pick = 0;
+        if (saved) {
+          const i = data.ports.indexOf(saved);
+          if (i >= 0) pick = i;
+        }
+        select.selectedIndex = pick;
+        select.onchange = function() {
+          if (this.value && !this.value.includes('No USB')) localStorage.setItem('korvo_flash_port', this.value);
+        };
       }
     }
 
     // ─── Build & Flash (SSE streaming) ───
     let bootCountdownInterval = null;
 
-    async function buildAndFlash() {
-      const btn = document.getElementById('flashBtn');
-      const badge = document.getElementById('flashBadge');
-      const terminal = document.getElementById('terminal');
-      const output = document.getElementById('terminalOutput');
-      const port = document.getElementById('serialPort').value;
-
-      if (!port || port.includes('No USB')) return toast('No serial port selected', 'error');
-
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Building...';
-      badge.style.display = 'inline-block';
-      badge.className = 'badge building'; badge.textContent = 'Building';
-      terminal.classList.add('active');
-      output.innerHTML = '';
-
-      function termLine(text, cls = 'line-stdout') {
-        const div = document.createElement('div');
-        div.className = cls;
-        div.textContent = text;
-        output.appendChild(div);
-        output.scrollTop = output.scrollHeight;
-      }
-
-      try {
-        const res = await fetch('/api/flash', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ port }),
-        });
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            try {
-              const event = JSON.parse(line.slice(6));
-
-              // Re-read event type from the SSE event field
-              // Our SSE format: "event: type\ndata: json\n\n"
-              // Since we split by \n, we need to track event types
-
-              if (event.type) {
-                termLine(event.text || event.message || event.data || JSON.stringify(event), 'line-stdout');
-              }
-            } catch (e) {
-              // Not JSON, skip
-            }
-          }
-        }
-      } catch (e) {
-        termLine(`Error: ${e.message}`, 'line-error');
-      }
-
-      // Fallback: re-parse using EventSource-style
-      // Actually let's re-do this properly with a proper SSE parser
-    }
-
-    // Proper SSE reader
     async function buildAndFlash() {
       const btn = document.getElementById('flashBtn');
       const badge = document.getElementById('flashBadge');
@@ -680,6 +640,8 @@
         output.appendChild(div);
         output.scrollTop = output.scrollHeight;
       }
+
+      termLine(`Flashing this port: ${port}`, 'line-system');
 
       function showBootModal(countdown) {
         const modal = document.getElementById('bootModal');
@@ -722,11 +684,24 @@
       }
 
       try {
+        const cleanBefore = document.getElementById('flashCleanBefore').checked;
         const res = await fetch('/api/flash', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ port }),
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+          body: JSON.stringify({ port, clean_before_build: cleanBefore }),
         });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          termLine(`HTTP ${res.status}: ${errText || res.statusText}`, 'line-error');
+          toast('Build & flash refused or failed — see terminal output', 'error');
+          badge.className = 'badge disconnected';
+          badge.textContent = 'Failed';
+          btn.disabled = false;
+          btn.innerHTML = '🔨 Build & Flash to Board';
+          return;
+        }
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -758,18 +733,22 @@
               const parsed = JSON.parse(data);
 
               switch (eventType) {
-                case 'phase':
-                  badge.textContent = parsed;
-                  btn.innerHTML = `<span class="spinner"></span> ${parsed}`;
-                  termLine(`\n▸ ${parsed}`, 'line-phase');
+                case 'phase': {
+                  const label = typeof parsed === 'string' ? parsed : (parsed && parsed.message) || JSON.stringify(parsed);
+                  badge.textContent = label;
+                  btn.innerHTML = `<span class="spinner"></span> ${label}`;
+                  termLine(`\n▸ ${label}`, 'line-phase');
                   break;
+                }
 
-                case 'output':
-                  termLine(parsed.text,
+                case 'output': {
+                  const t = parsed && parsed.text != null ? String(parsed.text) : JSON.stringify(parsed);
+                  termLine(t,
                     parsed.source === 'stderr' ? 'line-stderr' :
                     parsed.source === 'system' ? 'line-system' :
                     parsed.source === 'error' ? 'line-error' : 'line-stdout');
                   break;
+                }
 
                 case 'flash_start':
                   badge.className = 'badge flashing';
@@ -802,8 +781,8 @@
                   } else {
                     badge.className = 'badge disconnected'; badge.textContent = 'Failed';
                     toast('Flash failed', 'error');
+                    hideBootModal(false);
                   }
-                  hideBootModal(false);
                   break;
               }
             } catch (e) {
@@ -928,10 +907,13 @@
       const btn = document.getElementById('audioBtn');
       const badge = document.getElementById('audioBadge');
       const player = document.getElementById('audioPlayer');
-      const boardIp = document.getElementById('boardIp').value.trim();
-      
+      let boardIp = document.getElementById('boardIp').value.trim();
+      if (!boardIp && espIp) {
+        boardIp = espIp;
+        document.getElementById('boardIp').value = boardIp;
+      }
       if (!boardIp) {
-        alert('Please enter the Korvo board IP address first');
+        alert('Enter the board LAN IP (same as LED control), or set it under LED first.');
         return;
       }
       
@@ -961,27 +943,19 @@
         const primaryUrl = `http://${boardIp}/api/audio/stream`;
         player.setAttribute('src', primaryUrl);
         
-        player.addEventListener('error', function(event) {
-          if (!foundWorkingUrl) {
-            console.log('Primary audio stream failed, trying alternatives...');
-            // Try alternative URLs in sequence
-            for (let i = 0; i < streamUrls.length; i++) {
-              fetch(streamUrls[i], { method: 'HEAD' })
-                .then(response => {
-                  if (response.ok) {
-                    player.setAttribute('src', streamUrls[i]);  
-                    foundWorkingUrl = true;
-                    console.log('Using streaming URL:', streamUrls[i]);
-                    player.play().catch(e => console.log('Playback error:', e));
-                    return;
-                  }
-                })
-                .catch(err => {
-                  console.log('Failed to test URL:', streamUrls[i]);
-                });
-            }
+        let altIdx = 0;
+        player.addEventListener('error', function onErr() {
+          if (foundWorkingUrl) return;
+          altIdx++;
+          if (altIdx < streamUrls.length) {
+            console.log('Trying stream URL:', streamUrls[altIdx]);
+            player.setAttribute('src', streamUrls[altIdx]);
+            player.play().catch(() => {});
+          } else {
+            player.removeEventListener('error', onErr);
+            alert('Could not open audio stream. Try the numeric LAN IP if korvo.local fails, and ensure firmware exposes GET /api/audio/stream.');
           }
-        }, { once: true });
+        });
         
         player.addEventListener('ended', function() {
           btn.innerHTML = '▶️ Start Audio Stream';
@@ -1049,31 +1023,39 @@
     
     // Poll ESP32 LED state every 5s when online
     setInterval(() => { if (espIp) checkLedBoard(); }, 5000);
-    
-    // Show audio card after page loads if there's an available IP
-    setTimeout(() => {
-      if (espIp) {
-        document.getElementById('boardIp').value = espIp;
-        document.getElementById('boardIp').addEventListener('change', function() {
-          localStorage.setItem('korvo_board_ip', this.value);
+
+    document.getElementById('espIpInput').addEventListener('change', function() {
+      const v = this.value.trim();
+      if (!v) return;
+      espIp = v;
+      localStorage.setItem('korvo_esp_ip', v);
+      checkLedBoard();
+    });
+
+    async function bootstrapAfterSettings() {
+      await loadSettings();
+      const bi = document.getElementById('boardIp');
+      if (!bi.dataset.bound) {
+        bi.dataset.bound = '1';
+        bi.addEventListener('change', function() {
+          localStorage.setItem('korvo_board_ip', this.value.trim());
         });
-        
-        // Load saved IP if available
-        const savedIp = localStorage.getItem('korvo_board_ip');
-        if (savedIp) {
-          document.getElementById('boardIp').value = savedIp;
-        }
-        
+      }
+      const savedBoard = (localStorage.getItem('korvo_board_ip') || '').trim();
+      if (espIp) bi.value = espIp;
+      else if (savedBoard) bi.value = savedBoard;
+      else bi.value = 'korvo.local';
+      if (espIp || savedBoard || bi.value.trim()) {
         document.getElementById('audioCard').style.display = 'block';
       }
-    }, 1000);
-    
+      if (espIp) checkLedBoard();
+    }
+
     // ─── Init ───
     loadWifi();
-    loadSettings();
+    bootstrapAfterSettings();
     loadConfig();
     loadPorts();
-    if (espIp) { checkLedBoard(); }
   </script>
 </body>
 </html>

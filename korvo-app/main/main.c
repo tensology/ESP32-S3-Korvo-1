@@ -200,13 +200,15 @@ static void wifi_init_sta(void)
 static esp_err_t audio_stream_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "audio/wav");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store");
     httpd_resp_set_status(req, "200 OK");
     stream_client_connected = true;
+    /* 16 kHz mono s16le — must match esp_board_init(..., 1 channel) and feed chunks */
     unsigned char wav_header[] = {
         'R','I','F','F', 0xFF,0xFF,0xFF,0xFF,
         'W','A','V','E',
-        'f','m','t',' ', 0x10,0x00,0x00,0x00, 0x01,0x00, 0x04,0x00,
-        0x80,0x3E,0x00,0x00, 0x00,0xF4,0x01,0x00, 0x08,0x00, 0x10,0x00,
+        'f','m','t',' ', 0x10,0x00,0x00,0x00, 0x01,0x00, 0x01,0x00,
+        0x80,0x3E,0x00,0x00, 0x00,0x7D,0x00,0x00, 0x02,0x00, 0x10,0x00,
         'd','a','t','a', 0xFE,0xFF,0xFF,0xFF
     };
     httpd_resp_send_chunk(req, (const char*)wav_header, sizeof(wav_header));
@@ -214,13 +216,17 @@ static esp_err_t audio_stream_handler(httpd_req_t *req) {
     if (!buffer) { stream_client_connected = false; httpd_resp_send_500(req); return ESP_ERR_NO_MEM; }
     while (stream_client_connected) {
         size_t item_size;
-        void *item = xRingbufferReceive(audio_ringbuf, &item_size, pdMS_TO_TICKS(100));
+        void *item = xRingbufferReceive(audio_ringbuf, &item_size, pdMS_TO_TICKS(200));
         if (item && item_size > 0) {
             if (item_size > AUDIO_CHUNK_SIZE) item_size = AUDIO_CHUNK_SIZE;
             memcpy(buffer, item, item_size);
             vRingbufferReturnItem(audio_ringbuf, item);
-            httpd_resp_send_chunk(req, (const char*)buffer, item_size);
-        } else { break; }
+            if (httpd_resp_send_chunk(req, (const char *)buffer, item_size) != ESP_OK) {
+                break;
+            }
+        } else {
+            continue;
+        }
     }
     if (buffer) free(buffer);
     stream_client_connected = false;
@@ -287,11 +293,20 @@ void app_main(void) {
         ESP_LOGI(TAG, "Audio init result: %d", board_init);
         
         ESP_LOGI(TAG, "=== AUDIO LOOP START ===");
+        const int feed_ch = esp_get_feed_channel();
+        ESP_LOGI(TAG, "Mic feed channels: %d (stream is mono downmix)", feed_ch);
+        const size_t raw_bytes = (size_t)AUDIO_CHUNK_SIZE * sizeof(int16_t) * (size_t)feed_ch;
+        int16_t *raw_buf = (int16_t *)malloc(raw_bytes);
+        int16_t *mono_buf = (int16_t *)malloc((size_t)AUDIO_CHUNK_SIZE * sizeof(int16_t));
+        if (!raw_buf || !mono_buf) {
+            ESP_LOGE(TAG, "audio buffer alloc failed (raw=%p mono=%p)", (void *)raw_buf, (void *)mono_buf);
+            while (1) {
+                vTaskDelay(pdMS_TO_TICKS(1000));
+            }
+        }
         bool was_streaming = false;
         while (1) {
-            int16_t buffer[AUDIO_CHUNK_SIZE];
-            esp_err_t result = esp_get_feed_data(true, buffer, AUDIO_CHUNK_SIZE * sizeof(int16_t));
-            
+            esp_err_t result = esp_get_feed_data(true, raw_buf, (int)raw_bytes);
             if (stream_client_connected && !was_streaming) {
                 was_streaming = true;
                 led_state.on = true;
@@ -301,12 +316,18 @@ void app_main(void) {
             }
 
             if (result == ESP_OK && stream_client_connected && audio_ringbuf) {
+                for (int i = 0; i < AUDIO_CHUNK_SIZE; i++) {
+                    int32_t acc = 0;
+                    for (int c = 0; c < feed_ch; c++) {
+                        acc += (int32_t)raw_buf[i * feed_ch + c];
+                    }
+                    mono_buf[i] = (int16_t)(acc / feed_ch);
+                }
                 if (xSemaphoreTake(stream_mutex, pdMS_TO_TICKS(5))) {
-                    xRingbufferSend(audio_ringbuf, buffer, AUDIO_CHUNK_SIZE * sizeof(int16_t), pdMS_TO_TICKS(5));
+                    xRingbufferSend(audio_ringbuf, mono_buf, (size_t)AUDIO_CHUNK_SIZE * sizeof(int16_t), pdMS_TO_TICKS(5));
                     xSemaphoreGive(stream_mutex);
                 }
             }
-            // Yielding to avoid starving watchdog without artificial delay limits
             vTaskDelay(pdMS_TO_TICKS(1));
         }
     } else {
