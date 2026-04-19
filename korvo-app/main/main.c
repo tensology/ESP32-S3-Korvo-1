@@ -539,10 +539,11 @@ static void wake_word_task(void *arg) {
 
 // Feed task: reads from microphone and feeds to wake word detection and streaming buffer
 static void feed_task(void *arg) {
-    model_iface_data_t *model_data = (model_iface_data_t *)arg;
+    esp_afe_sr_data_t *afe_data = (esp_afe_sr_data_t *)arg;
+    esp_wn_iface_t *wakenet = (esp_wn_iface_t *)esp_wn_handle_from_name(esp_srmodel_filter(esp_srmodel_init("model"), ESP_WN_PREFIX, "hilexin") ?: esp_srmodel_filter(esp_srmodel_init("model"), ESP_WN_PREFIX, "hiesp"));
 
-    // Get the sample chunk size based on the wake word model
-    int audio_chunksize = esp_sr_wakenet_get_samp_chunksize(model_data->model_data);
+    // Get the sample chunk size using the interface method
+    int audio_chunksize = wakenet->get_samp_chunksize(afe_data);
     int16_t *buffer = (int16_t *)malloc(audio_chunksize * sizeof(int16_t));
     if (!buffer) {
         ESP_LOGE(TAG, "Failed to allocate buffer");
@@ -559,42 +560,32 @@ static void feed_task(void *arg) {
         return;
     }
 
-    int chunks = 0;
     while (afe_task_started) {
-        if ((chunks + 1) * audio_chunksize <= sizeof(temp_buffer)/sizeof(int16_t)) {
-            // Get data from microphone
-            esp_err_t result = esp_get_feed_data(true, temp_buffer, audio_chunksize * sizeof(int16_t) * feed_channel);
-            if (result == ESP_OK && temp_buffer[0] != 0) {
-                memcpy(buffer, temp_buffer, audio_chunksize * sizeof(int16_t));
+        // Get data from microphone
+        esp_err_t result = esp_get_feed_data(true, temp_buffer, audio_chunksize * sizeof(int16_t) * feed_channel);
+        if (result == ESP_OK) {
+            // Run wakenet detection using the interface method
+            wakenet_state_t state = wakenet->detect(afe_data, temp_buffer);
+            if (state == WAKENET_DETECTED) {
+                ESP_LOGI(TAG, "🔥 Wake word detected!");
+                led_go(true, 4, 0, 100, 255, 500);  // blue breath 0.5s
+            }
 
-                // Run detection
-                if (esp_sr_wakenet_run(model_data->model_data, buffer) == WAKENET_DETECTED) {
-                    ESP_LOGI(TAG, "🔥 Wake word detected via old api!");
-                    // Blue brief flash on wake word
-                    led_go(true, 4, 0, 100, 255, 500);  // blue breath 0.5s
-                }
-
-                // Add to ring buffer for streaming when connected
-                if (stream_client_connected && audio_ringbuf) {
-                    if (xSemaphoreTake(stream_mutex, pdMS_TO_TICKS(10))) {  // Use timeout instead of portMAX_DELAY
-                        BaseType_t result = xRingbufferSend(audio_ringbuf, buffer, audio_chunksize * sizeof(int16_t), pdMS_TO_TICKS(10));
-                        if(result != pdTRUE) {
-                            // Buffer full, drop the frame
-                            ESP_LOGD(TAG, "Audio streaming buffer full");
-                        }
-                        xSemaphoreGive(stream_mutex);
+            // Add to ring buffer for streaming when connected
+            if (stream_client_connected && audio_ringbuf) {
+                if (xSemaphoreTake(stream_mutex, pdMS_TO_TICKS(10))) {
+                    BaseType_t res = xRingbufferSend(audio_ringbuf, temp_buffer, audio_chunksize * sizeof(int16_t), pdMS_TO_TICKS(10));
+                    if(res != pdTRUE) {
+                        ESP_LOGD(TAG, "Audio streaming buffer full");
                     }
+                    xSemaphoreGive(stream_mutex);
                 }
-
-                chunks++;
-            } else {
-                chunks = 0; continue; // reset counter on error
             }
         } else {
-            chunks = 0; // reset counter when buffer is full
+            vTaskDelay(pdMS_TO_TICKS(10)); // Small delay on error
+            continue;
         }
-
-        vTaskDelay(pdMS_TO_TICKS(10)); // Small delay
+        vTaskDelay(pdMS_TO_TICKS(5)); // Small delay
     }
 
     if (buffer) free(buffer);
