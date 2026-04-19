@@ -13,6 +13,7 @@ idf_component_register(
         esp_codec_dev
         player
         esp_psram
+        mdns
 )
 
 # Extra component dirs — pull in esp-skainet components and model data

@@ -287,7 +287,7 @@ app.get('/api/ports', (req, res) => {
 // ─── Build & Flash (streaming SSE) ───
 app.post('/api/flash', (req, res) => {
   const port = req.body.port || '/dev/cu.usbserial-11210';
-  const projectDir = path.join(__dirname, '..', 'esp-skainet', 'examples', 'wake_word_detection', 'wakenet');
+  const projectDir = path.join(__dirname, '..', 'korvo-app');
   const setupSh = path.join(__dirname, '..', 'setup.sh');
 
   res.setHeader('Content-Type', 'text/event-stream');

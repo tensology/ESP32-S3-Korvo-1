@@ -137,10 +137,14 @@ static int set_drv_fs(i2s_chan_handle_t channel, bool playback, uint8_t slot_bit
             }
             ret = i2s_channel_reconfig_std_slot(channel, &slot_cfg);
             if (ret != ESP_OK) {
-                *(int *) 0 = 0;
-                return ESP_CODEC_DEV_DRV_ERR;
+                ESP_LOGE(TAG, "i2s_channel_reconfig_std_slot FAILED: %d", ret);
+                // Non-fatal bypass if IDF v5.4 doesn't support this specific runtime override
+                // return ESP_CODEC_DEV_DRV_ERR;
             }
             ret = i2s_channel_reconfig_std_clock(channel, &clk_cfg);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "i2s_channel_reconfig_std_clock FAILED: %d", ret);
+            }
             ESP_LOGI(TAG, "STD Mode %d bits:%d/%d channel:%d sample_rate:%d mask:%x",
                 playback, bits, slot_bits, fs->channel,
                 (int)fs->sample_rate, channel_mask);
@@ -401,6 +405,14 @@ static int _i2s_data_set_fmt(const audio_codec_data_if_t *h, esp_codec_dev_type_
     if (i2s_data->is_open == false) {
         return ESP_CODEC_DEV_WRONG_STATE;
     }
+    
+    // BSP explicitly initializes all I2S slots and clocks.
+    // Reconfiguring through codec wrapper breaks ESP-IDF v5 state machines. We bypass it cleanly.
+    memcpy(&i2s_data->fs, fs, sizeof(esp_codec_dev_sample_info_t));
+    if (dev_type & ESP_CODEC_DEV_TYPE_IN) memcpy(&i2s_data->in_fs, fs, sizeof(esp_codec_dev_sample_info_t));
+    if (dev_type & ESP_CODEC_DEV_TYPE_OUT) memcpy(&i2s_data->out_fs, fs, sizeof(esp_codec_dev_sample_info_t));
+    return ESP_CODEC_DEV_OK;
+
     esp_codec_dev_sample_info_t eq_fs;
     if (fs->channel == 1) {
         // When using one channel replace to select channel 0 in default

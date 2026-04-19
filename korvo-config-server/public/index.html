@@ -247,7 +247,7 @@
         </div>
         <div class="field full">
           <label>ESP32 IP Address (for LED control)</label>
-          <input type="text" id="espIpInput" placeholder="192.168.x.x (shown in serial monitor after WiFi connect)">
+          <input type="text" id="espIpInput" value="korvo.local" placeholder="korvo.local or 192.168.x.x">
         </div>
         <div class="field full">
           <label>Agent Endpoint (after WiFi connect)</label>
@@ -268,7 +268,7 @@
     </div>
 
     <!-- LED Control -->
-    <div class="card" id="ledCard" style="display:none">
+    <div class="card" id="ledCard">
       <h2>
         <span class="icon">💡</span> LED Control
         <span class="badge disconnected" id="ledBadge">Board offline</span>
@@ -343,14 +343,14 @@
     </div>
 
     <!-- Audio Streaming -->
-    <div class="card" id="audioCard" style="display:none">
+    <div class="card" id="audioCard">
       <h2>
         <span class="icon">🎵</span> Audio Streaming
         <span class="badge disconnected" id="audioBadge">Not connected</span>
       </h2>
       <div class="field">
-        <label>Korvo Board IP Address</label>
-        <input type="text" id="boardIp" placeholder="192.168.x.x" style="margin-bottom: 1rem;">
+        <label>Korvo Board Hostname / IP</label>
+        <input type="text" id="boardIp" value="korvo.local" placeholder="korvo.local or 192.168.x.x" style="margin-bottom: 1rem;">
       </div>
       <button class="btn-primary" id="audioBtn" onclick="toggleAudioStream()" style="width:100%;padding:0.8rem;">▶️ Start Audio Stream</button>
       <div style="margin-top:1rem;position:relative;">
@@ -947,18 +947,18 @@
       } else {
         // Try different audio stream URLs commonly used by ESP32 Audio systems
         const streamUrls = [
+          `http://${boardIp}/api/audio/stream`,
           `http://${boardIp}/audio`,
           `http://${boardIp}/stream`,
           `http://${boardIp}/live`,
-          `http://${boardIp}/mic`,
-          `http://${boardIp}:8080`
+          `http://${boardIp}/mic`
         ];
         
         // Find the first working stream
         let foundWorkingUrl = false;
         
         // Just try the most common one first
-        const primaryUrl = `http://${boardIp}/audio`;
+        const primaryUrl = `http://${boardIp}/api/audio/stream`;
         player.setAttribute('src', primaryUrl);
         
         player.addEventListener('error', function(event) {
