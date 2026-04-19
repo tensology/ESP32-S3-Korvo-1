@@ -1,0 +1,10 @@
+*.db
+*.log
+.DS_Store
+build/
+managed_components/
+esp-skainet/
+esp-idf/
+node_modules/
+*.db-wal
+*.db-shm
