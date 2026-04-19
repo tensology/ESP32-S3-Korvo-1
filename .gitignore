@@ -8,3 +8,8 @@ esp-idf/
 node_modules/
 *.db-wal
 *.db-shm
+*.bin
+*.csv
+sdkconfig
+STATE.backup
+.SCons*
