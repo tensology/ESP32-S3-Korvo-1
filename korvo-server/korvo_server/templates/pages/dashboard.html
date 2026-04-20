@@ -272,12 +272,6 @@
         <div id="savedList"></div>
       </div>
     </div>
-
-    <!-- Config preview (same tab as WiFi) -->
-    <div class="card">
-      <h2><span class="icon">📄</span> Config JSON Preview</h2>
-      <pre id="configPreview" style="background:#0a0a0a; border:1px solid #222; border-radius:8px; padding:1rem; font-size:0.8rem; overflow-x:auto; max-height:300px;"></pre>
-    </div>
     </div>
 
     <div class="tab-panel" role="tabpanel" id="tab-settings" aria-labelledby="tabbtn-settings">
@@ -554,7 +548,7 @@
         toast(data.detail || data.message || `Save failed (${res.status})`, 'error');
         return;
       }
-      if (data.success) { toast('WiFi config saved!'); loadWifi(); loadConfig(); }
+      if (data.success) { toast('WiFi config saved!'); loadWifi(); }
       else toast('Save failed', 'error');
     }
 
@@ -608,12 +602,12 @@
 
     async function activateNetwork(id) {
       await fetch(`/api/wifi/${id}/activate`, { method: 'POST' });
-      toast('Network activated'); loadWifi(); loadConfig();
+      toast('Network activated'); loadWifi();
     }
 
     async function deleteNetwork(id) {
       await fetch(`/api/wifi/${id}`, { method: 'DELETE' });
-      toast('Network removed'); loadWifi(); loadConfig();
+      toast('Network removed'); loadWifi();
     }
 
     // ─── Settings ───
@@ -651,14 +645,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
       });
-      toast('Settings saved!'); loadConfig();
-    }
-
-    // ─── Config Preview ───
-    async function loadConfig() {
-      const res = await fetch('/api/config');
-      const data = await res.json();
-      document.getElementById('configPreview').textContent = JSON.stringify(data, null, 2);
+      toast('Settings saved!');
     }
 
     // ─── Serial Ports ───
@@ -1226,7 +1213,6 @@
       try {
         t = (localStorage.getItem('korvo_dashboard_tab') || '').trim();
       } catch (e) {}
-      if (t === 'config') t = 'wifi';
       if (t && valid.indexOf(t) >= 0) {
         korvoSwitchTab(t);
       }
@@ -1236,7 +1222,6 @@
     korvoInitTabs();
     loadWifi();
     bootstrapAfterSettings();
-    loadConfig();
     loadPorts();
   </script>
 </body>
