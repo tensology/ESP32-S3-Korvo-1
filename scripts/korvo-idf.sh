@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run idf.py from korvo-app after sourcing repo setup.sh (used by korvo-config-server /api/flash).
+# Run idf.py from korvo-app after sourcing repo setup.sh (used by korvo-server /api/flash).
 set -e
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 SETUP="$REPO/setup.sh"

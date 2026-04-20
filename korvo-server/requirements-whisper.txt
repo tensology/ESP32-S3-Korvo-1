@@ -1,0 +1,4 @@
+# Optional: local Whisper.cpp (pywhispercpp). Install after core deps:
+#   pip install -r requirements.txt -r requirements-whisper.txt
+# Models download on first use (see README).
+pywhispercpp @ git+https://github.com/absadiki/pywhispercpp

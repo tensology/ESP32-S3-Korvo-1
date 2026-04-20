@@ -1,6 +1,9 @@
 /**
  * Local override for korvo-app only (upstream esp-skainet copy unchanged).
- * GPIO0 must not be used for I2S MCLK (boot strap + UART / esp_clock_output conflict).
+ *
+ * ES7210 (mic / I2S1) needs MCLK on GPIO0 per ESP32-Korvo V1.1. I2S0 (DAC) must
+ * keep MCLK as NC here: bsp_board_init() brings up I2S0 then I2S1 — assigning GPIO0
+ * to both breaks IDF v5 (RX "channel is not enabled", read errors).
  */
 #pragma once
 
@@ -52,7 +55,7 @@
  */
 #define FUNC_I2S_EN         (1)
 #define GPIO_I2S_LRCK       (GPIO_NUM_26)
-#define GPIO_I2S_MCLK       (GPIO_NUM_NC)
+#define GPIO_I2S_MCLK       (GPIO_NUM_0)
 #define GPIO_I2S_SCLK       (GPIO_NUM_27)
 #define GPIO_I2S_SDIN       (GPIO_NUM_36)
 #define GPIO_I2S_DOUT       (GPIO_NUM_NC)
@@ -68,7 +71,13 @@
 #define GPIO_I2S0_SDIN       (GPIO_NUM_NC)
 #define GPIO_I2S0_DOUT       (GPIO_NUM_13)
 
-#define RECORD_VOLUME   (30.0)
+/* ES7210 PGA (dB index in driver). HTTP stream also uses KORVO_MIC_I32_MONO_SHIFT in main.c
+ * for int32→s16 scaling. For AFE/NS after the ADC, see esp-skainet examples:
+ *   examples/wake_word_detection/afe  (AFE feed/fetch)
+ *   examples/deep_noise_suppression
+ *   examples/voice_communication
+ */
+#define RECORD_VOLUME   (12.0)
 /**
  * @brief player configurations
  *

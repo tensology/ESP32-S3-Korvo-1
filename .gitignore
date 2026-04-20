@@ -14,3 +14,10 @@ sdkconfig
 *.bak
 *.backup
 .SCons*
+korvo-server/korvo/
+korvo-server/__pycache__/
+korvo-server/**/__pycache__/
+korvo-server/recordings/*.wav
+scripts/stream-captures/*.wav
+__pycache__/
+*.py[cod]
