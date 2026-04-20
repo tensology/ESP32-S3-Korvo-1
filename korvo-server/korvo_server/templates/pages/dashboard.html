@@ -236,7 +236,6 @@
       <button type="button" class="tab-btn" role="tab" id="tabbtn-build" aria-selected="false" aria-controls="tab-build" data-tab="build"><span class="tab-ico" aria-hidden="true">🔨</span>Build</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-audio" aria-selected="false" aria-controls="tab-audio" data-tab="audio"><span class="tab-ico" aria-hidden="true">🎵</span>Audio</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-transcript" aria-selected="false" aria-controls="tab-transcript" data-tab="transcript"><span class="tab-ico" aria-hidden="true">📝</span>ASR</button>
-      <button type="button" class="tab-btn" role="tab" id="tabbtn-config" aria-selected="false" aria-controls="tab-config" data-tab="config"><span class="tab-ico" aria-hidden="true">📄</span>Config</button>
     </nav>
 
     <div class="tab-panel active" role="tabpanel" id="tab-wifi" aria-labelledby="tabbtn-wifi">
@@ -272,6 +271,12 @@
         <label style="margin-top:1rem">Saved Networks</label>
         <div id="savedList"></div>
       </div>
+    </div>
+
+    <!-- Config preview (same tab as WiFi) -->
+    <div class="card">
+      <h2><span class="icon">📄</span> Config JSON Preview</h2>
+      <pre id="configPreview" style="background:#0a0a0a; border:1px solid #222; border-radius:8px; padding:1rem; font-size:0.8rem; overflow-x:auto; max-height:300px;"></pre>
     </div>
     </div>
 
@@ -440,14 +445,6 @@
         <div style="font-size:0.72rem;opacity:0.7;margin:0.65rem 0 0.35rem;">Session log (one line per non-empty delta)</div>
         <pre id="transcriptRolling" style="background:#070707;border:1px solid #222;border-radius:8px;padding:0.65rem 0.75rem;font-size:0.8rem;line-height:1.4;max-height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;margin:0;"></pre>
       </div>
-    </div>
-    </div>
-
-    <div class="tab-panel" role="tabpanel" id="tab-config" aria-labelledby="tabbtn-config">
-    <!-- Config Preview -->
-    <div class="card">
-      <h2><span class="icon">📄</span> Config JSON Preview</h2>
-      <pre id="configPreview" style="background:#0a0a0a; border:1px solid #222; border-radius:8px; padding:1rem; font-size:0.8rem; overflow-x:auto; max-height:300px;"></pre>
     </div>
     </div>
   </div>
@@ -1224,11 +1221,12 @@
       document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => korvoSwitchTab(btn.getAttribute('data-tab')));
       });
-      const valid = ['wifi', 'settings', 'led', 'build', 'audio', 'transcript', 'config'];
+      const valid = ['wifi', 'settings', 'led', 'build', 'audio', 'transcript'];
       let t = '';
       try {
         t = (localStorage.getItem('korvo_dashboard_tab') || '').trim();
       } catch (e) {}
+      if (t === 'config') t = 'wifi';
       if (t && valid.indexOf(t) >= 0) {
         korvoSwitchTab(t);
       }
