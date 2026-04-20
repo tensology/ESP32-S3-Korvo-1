@@ -2,7 +2,9 @@ node_modules/
 build/
 *.log
 *.db
+# macOS folder metadata (any directory)
 .DS_Store
+**/.DS_Store
 *.bin
 *.elf
 managed_components/
