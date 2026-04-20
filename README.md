@@ -1,8 +1,8 @@
-<div align="center">
-
 # Korvo toolkit
 
-![Korvo toolkit overview](readme/main.webp)
+<p align="center">
+  <img src="readme/main.webp" alt="Korvo toolkit overview" />
+</p>
 
 This repository is a **development toolkit for the Espressif ESP32-Korvo v1.1** board: a voice-focused dev kit (three analogue mics, WS2812 strip, codec and amp, buttons). It is not a single “app binary” download—it is the pieces you use together to **run custom firmware**, **configure the board from a browser**, and **iterate without living only in a serial terminal**.
 
@@ -15,11 +15,15 @@ This repository is a **development toolkit for the Espressif ESP32-Korvo v1.1** 
 | **`setup.sh`** (repo root) | Shell snippet to **source** so `idf.py` and the ESP-IDF toolchain are on your PATH when you work on firmware. Paths inside it are machine-specific—edit them once for your install. |
 | **`start.sh`** (repo root) | Convenience wrapper: runs **`korvo-server/start.sh`**, which creates/updates the server venv and starts **Uvicorn on port 3333**. |
 
-![Build and flash from the dashboard](readme/build.webp)
+<p align="center">
+  <img src="readme/build.webp" alt="Build and flash from the dashboard" />
+</p>
 
 Typical loop: edit firmware in `korvo-app`, use the dashboard to **flash** and watch **SSE logs**, use **Audio** / **ASR** tabs when you want to hear or transcribe the mic without extra wiring. The server talks to the board over your LAN (or `korvo.local` when mDNS behaves).
 
-![Audio stream / relay from the board](readme/stream.webp)
+<p align="center">
+  <img src="readme/stream.webp" alt="Audio stream / relay from the board" />
+</p>
 
 ## Where to buy the board
 
@@ -70,5 +74,3 @@ Korvo/
 - **Server APIs, audio relay, Whisper WebSocket, DB paths:** [`korvo-server/README.md`](korvo-server/README.md)
 
 Upstream hardware and speech stacks live in Espressif’s **[ESP-Skainet](https://github.com/espressif/esp-skainet)** and **[ESP-SR](https://github.com/espressif/esp-sr)** repos; this toolkit wires a concrete board + a local dev server around them.
-
-</div>
