@@ -50,29 +50,9 @@ prepare_port() {
   done
 }
 
-if [[ ! -d korvo ]]; then
-  echo "Creating venv ./korvo ..."
-  python3 -m venv korvo
-fi
+bash "$(dirname "$0")/setup.sh"
 # shellcheck source=/dev/null
 source korvo/bin/activate
-
-need_pip() {
-  ! python -c "import fastapi, numpy" 2>/dev/null
-}
-
-if need_pip; then
-  echo "Installing core dependencies from requirements.txt ..."
-  pip install -r requirements.txt
-fi
-
-if ! python -c "import pywhispercpp" 2>/dev/null; then
-  echo "Installing local Whisper (pywhispercpp from requirements-whisper.txt) ..."
-  if ! pip install -r requirements-whisper.txt; then
-    echo "[korvo] Warning: pywhispercpp install failed (needs CMake + C++ toolchain on some systems)." >&2
-    echo "[korvo] Server will start; fix with: pip install -r requirements-whisper.txt" >&2
-  fi
-fi
 
 # Clear port immediately before bind (avoids uvicorn ERROR: address already in use).
 prepare_port "$PORT"

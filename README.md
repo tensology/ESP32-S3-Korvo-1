@@ -1,125 +1,55 @@
-# ESP32-S3-Korvo-1 Project
+# Korvo toolkit
 
-Development environment for the **ESP32-S3-Korvo-1 v5.0** AI voice development board.
+This repository is a **development toolkit for the Espressif ESP32-Korvo v1.1** board: a voice-focused dev kit (three analogue mics, WS2812 strip, codec and amp, buttons). It is not a single “app binary” download—it is the pieces you use together to **run custom firmware**, **configure the board from a browser**, and **iterate without living only in a serial terminal**.
 
-## Board Overview
+## What you get
 
-The ESP32-S3-Korvo-1 is an AI development board by Espressif based on the ESP32-S3 chip with:
-- **ESP32-S3-WROOM-1** module (8MB PSRAM + 16MB Flash)
-- 3-microphone array (analog) for far-field voice pickup
-- 12 addressable RGB LEDs (WS2812C)
-- Speaker output, headphone output
-- Audio ADC (ES7210), Audio Codec (ES8311)
-- Class D audio amplifier (3W)
-- Boot, Reset, and 6 function buttons
-- USB Power Port + USB-to-UART Port (both Micro-USB)
-- MicroSD card slot
+| Piece | Role |
+|--------|------|
+| **`korvo-app/`** | ESP-IDF firmware for Korvo v1.1: WiFi, HTTP APIs, wake word path, LED control, mic streaming hooks, and whatever product logic you add on the device. |
+| **`korvo-server/`** | FastAPI **companion server** you run on your Mac: web dashboard (WiFi, settings, LED playground, **build and flash** with streamed logs), optional **audio relay** and **live transcription** (Whisper) from the board’s HTTP mic stream, and small utilities (recording, WiFi scan helpers). |
+| **`setup.sh`** (repo root) | Shell snippet to **source** so `idf.py` and the ESP-IDF toolchain are on your PATH when you work on firmware. Paths inside it are machine-specific—edit them once for your install. |
+| **`start.sh`** (repo root) | Convenience wrapper: runs **`korvo-server/start.sh`**, which creates/updates the server venv and starts **Uvicorn on port 3333**. |
 
-## Quick Start
+Typical loop: edit firmware in `korvo-app`, use the dashboard to **flash** and watch **SSE logs**, use **Audio** / **ASR** tabs when you want to hear or transcribe the mic without extra wiring. The server talks to the board over your LAN (or `korvo.local` when mDNS behaves).
 
-### 1. Source the environment
+## Quick start (server)
+
+From the repo root:
 
 ```bash
-cd /Users/paul/development/TENSOLOGY/Korvo
-source setup.sh
+./start.sh
 ```
 
-### 2. Connect the board
+Open **http://localhost:3333/**. First run may install Python dependencies (and optionally Whisper-related wheels); details and endpoints are in [`korvo-server/README.md`](korvo-server/README.md).
 
-- Connect **USB Power Port** to a USB power source
-- Connect **USB-to-UART Port** to your Mac (this is the programming/debug port)
-- Toggle the **Power Switch** to ON
-- Connect a speaker (4Ω 3W recommended) or headphones
+## Quick start (firmware)
 
-### 3. Find the serial port
+Firmware build instructions, `esp-skainet` layout expectations, serial port notes, flash/monitor, and download-mode steps are in **[`korvo-app/README.md`](korvo-app/README.md)**. Short version:
 
 ```bash
-ls /dev/cu.usbserial-* 
-# Typically: /dev/cu.usbserial-0001 or similar
+cd korvo-app
+source ../setup.sh
+idf.py build
+idf.py -p /dev/cu.usbserial-XXXXXXXX flash monitor
 ```
 
-If no port appears, you may need to install the **SiLabs CP210x driver** for the USB-to-UART bridge:
-- Download from: https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers
-- On macOS, the driver may need to be allowed in System Settings > Privacy & Security
-
-### 4. Build and flash an example
-
-```bash
-# English speech command recognition (recommended starting point)
-cd esp-skainet/examples/en_speech_commands_recognition
-idf.py -p /dev/cu.usbserial-* flash monitor
-
-# Or wake word detection
-cd esp-skainet/examples/wake_word_detection/wakenet
-idf.py -p /dev/cu.usbserial-* flash monitor
-```
-
-### 5. Configure for Korvo-1 board
-
-```bash
-idf.py menuconfig
-# Navigate to: Audio Board → Select ESP32-S3-Korvo-1
-```
-
-## Available Examples (in esp-skainet/examples/)
-
-| Example | Description |
-|---------|-------------|
-| `en_speech_commands_recognition` | English speech command recognition |
-| `cn_speech_commands_recognition` | Chinese speech command recognition |
-| `wake_word_detection/wakenet` | Wake word detection (Hi ESP, etc.) |
-| `wake_word_detection/afe` | Wake word with Audio Front-End (2-mic) |
-| `chinese_tts` | Chinese text-to-speech |
-| `voice_communication` | Voice communication example |
-| `deep_noise_suppression` | Deep noise suppression demo |
-| `direction_of_arrival` | Direction of arrival detection |
-| `voice_activity_detection` | Voice activity detection |
-
-## Repository Structure
+## Repository layout
 
 ```
 Korvo/
-├── setup.sh                    # Environment setup script
-├── README.md                   # This file
-├── esp-skainet/                # ESP-Skainet: Voice assistant SDK
-│   ├── components/             # Hardware driver, player, etc.
-│   ├── examples/               # Example applications
-│   └── tools/                  # Default firmware binaries
-└── esp-idf/ → ~/esp/esp-idf    # ESP-IDF v5.4 (referenced via IDF_PATH)
+├── README.md                 # This overview
+├── setup.sh                  # source ./setup.sh  → ESP-IDF env for firmware
+├── start.sh                  # → korvo-server (dashboard on :3333)
+├── korvo-app/                # ESP-IDF project (Korvo v1.1)
+├── korvo-server/             # FastAPI dashboard + APIs
+├── scripts/                  # Optional CLI helpers (listen, record, etc.)
+└── korvo-config-server/      # Legacy Node config server (superseded by korvo-server)
 ```
 
-## ESP-IDF Version
+## Documentation map
 
-Using **ESP-IDF v5.4** (release/v5.4 branch) with Python 3.12 virtual environment.
+- **Product + firmware deep dive:** [`korvo-app/README.md`](korvo-app/README.md)
+- **Server APIs, audio relay, Whisper WebSocket, DB paths:** [`korvo-server/README.md`](korvo-server/README.md)
 
-## Key Resources
-
-- [ESP-Skainet GitHub](https://github.com/espressif/esp-skainet)
-- [ESP-SR (speech recognition) GitHub](https://github.com/espressif/esp-sr)
-- [ESP-IDF Documentation](https://docs.espressif.com/projects/esp-idf/en/release-v5.4/esp32s3/)
-- [ESP32-S3-Korvo-1 User Guide](https://github.com/espressif/esp-skainet/blob/master/docs/en/hw-reference/esp32s3/user-guide-korvo-1.md)
-- [ESP-SR Documentation](https://docs.espressif.com/projects/esp-sr/en/latest/esp32s3/)
-- [ESP32-S3 Datasheet](https://www.espressif.com/sites/default/files/documentation/esp32-s3_datasheet_en.pdf)
-
-## Wake Words Available
-
-| Wake Word | Model ID |
-|-----------|----------|
-| Hi, ESP | `wn9_hiesp` |
-| Hi, 乐鑫 | `wn9_hilexin` |
-| Hi, Jason | `wn9_hijason_tts2` |
-| Alexa | `wn9_alexa` |
-| Jarvis | `wn9_jarvis_tts` |
-| Computer | `wn9_computer_tts` |
-
-## Entering Download Mode
-
-If `idf.py flash` doesn't work automatically:
-1. Hold down the **Boot** button
-2. Press and release the **Reset** button
-3. Release the **Boot** button
-4. The board is now in Firmware Download mode
-
-## Serial Monitor
-
-Press `Ctrl+]` to exit the serial monitor.
+Upstream hardware and speech stacks live in Espressif’s **[ESP-Skainet](https://github.com/espressif/esp-skainet)** and **[ESP-SR](https://github.com/espressif/esp-sr)** repos; this toolkit wires a concrete board + a local dev server around them.

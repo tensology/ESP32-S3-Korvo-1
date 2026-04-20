@@ -15,6 +15,9 @@
     /* ─── Top tabs ─── */
     .tab-bar {
       display: flex; flex-wrap: nowrap; gap: 0.35rem;
+      justify-content: center;
+      align-items: stretch;
+      width: 100%;
       margin-bottom: 1.25rem; padding: 0.35rem 0 0;
       border-bottom: 1px solid #222;
       position: sticky; top: 0; z-index: 40;
@@ -41,6 +44,15 @@
     .tab-panel { display: none; margin-bottom: 0.5rem; }
     .tab-panel.active { display: block; }
     .tab-panel .card:last-child { margin-bottom: 0; }
+    .docs-links a { color: #e74c3c; text-decoration: none; font-weight: 500; }
+    .docs-links a:hover { text-decoration: underline; }
+    .docs-hw-photo {
+      width: 100%; max-width: 100%; height: auto; display: block;
+      border-radius: 12px; border: 1px solid #2a2a2a;
+      margin-top: 1.25rem;
+    }
+    .docs-caption-link { color: #e74c3c; text-decoration: none; font-weight: 500; }
+    .docs-caption-link:hover { text-decoration: underline; }
 
     header {
       display: flex; align-items: center; gap: 1rem;
@@ -126,6 +138,8 @@
     .btn-secondary:hover { background: #2a2a2a; }
     .btn-danger { background: transparent; color: #e74c3c; padding: 0.4rem 0.8rem; font-size: 0.75rem; }
     .btn-danger:hover { background: #1a0a0a; }
+    .btn-secondary.led-named.active { box-shadow: 0 0 0 2px #e74c3c; color: #fff; }
+    .led-strip-dot { width: 22px; height: 10px; border-radius: 3px; border: 1px solid #333; flex-shrink: 0; }
 
     .btn-row { display: flex; gap: 0.75rem; margin-top: 1rem; }
 
@@ -236,6 +250,8 @@
       <button type="button" class="tab-btn" role="tab" id="tabbtn-build" aria-selected="false" aria-controls="tab-build" data-tab="build"><span class="tab-ico" aria-hidden="true">🔨</span>Build</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-audio" aria-selected="false" aria-controls="tab-audio" data-tab="audio"><span class="tab-ico" aria-hidden="true">🎵</span>Audio</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-transcript" aria-selected="false" aria-controls="tab-transcript" data-tab="transcript"><span class="tab-ico" aria-hidden="true">📝</span>ASR</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-translation" aria-selected="false" aria-controls="tab-translation" data-tab="translation" title="Realtime translation"><span class="tab-ico" aria-hidden="true">🌐</span>Translation</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-docs" aria-selected="false" aria-controls="tab-docs" data-tab="docs" title="References & documentation"><span class="tab-ico" aria-hidden="true">📚</span>Docs</button>
     </nav>
 
     <div class="tab-panel active" role="tabpanel" id="tab-wifi" aria-labelledby="tabbtn-wifi">
@@ -338,19 +354,39 @@
 
       <label>Presets</label>
       <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
-        <button class="btn-secondary" onclick="ledPreset(0)" style="flex:1;min-width:50px">⏻ Off</button>
-        <button class="btn-secondary" onclick="ledPreset(1)" style="flex:1;min-width:50px">● Solid</button>
-        <button class="btn-secondary" onclick="ledPreset(2)" style="flex:1;min-width:50px">↻ Spinner</button>
-        <button class="btn-secondary" onclick="ledPreset(3)" style="flex:1;min-width:50px">🌈 Rainbow</button>
-        <button class="btn-secondary" onclick="ledPreset(4)" style="flex:1;min-width:50px">💨 Breathe</button>
-        <button class="btn-secondary" onclick="ledPreset(5)" style="flex:1;min-width:50px">⚡ Chase</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(0)" style="flex:1;min-width:50px">⏻ Off</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(1)" style="flex:1;min-width:50px">● ON</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(2)" style="flex:1;min-width:50px">↻ Spinner</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(3)" style="flex:1;min-width:50px">🌈 Rainbow</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(4)" style="flex:1;min-width:50px">💨 Breathe</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(5)" style="flex:1;min-width:50px">⚡ Chase</button>
       </div>
 
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-        <button class="btn-secondary" onclick="ledFlash(255,0,0)" style="background:#3e2723;color:#ff5722">Red Flash</button>
-        <button class="btn-secondary" onclick="ledFlash(0,255,0)" style="background:#1a472a;color:#4caf50">Green Flash</button>
-        <button class="btn-secondary" onclick="ledFlash(0,100,255)" style="background:#1a237e;color:#64b5f6">Blue Flash</button>
-        <button class="btn-secondary" onclick="ledFlash(255,150,0)" style="background:#4a2f00;color:#ff9800">Orange Flash</button>
+      <label style="margin-top:0.25rem">Solid colors (tap again to turn off)</label>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.85rem">
+        <button type="button" class="btn-secondary led-named" id="ledTogRed" onclick="ledNamedToggle(255,0,0)" style="background:#3e2723;color:#ff5722">Red</button>
+        <button type="button" class="btn-secondary led-named" id="ledTogGreen" onclick="ledNamedToggle(0,255,0)" style="background:#1a472a;color:#4caf50">Green</button>
+        <button type="button" class="btn-secondary led-named" id="ledTogBlue" onclick="ledNamedToggle(0,100,255)" style="background:#1a237e;color:#64b5f6">Blue</button>
+        <button type="button" class="btn-secondary led-named" id="ledTogOrange" onclick="ledNamedToggle(255,150,0)" style="background:#4a2f00;color:#ff9800">Orange</button>
+        <button type="button" class="btn-secondary led-named" id="ledTogYellow" onclick="ledNamedToggle(255,220,0)" style="background:#4a3d00;color:#ffeb3b">Yellow</button>
+      </div>
+
+      <p style="font-size:0.72rem;opacity:0.78;line-height:1.45;margin:0 0 0.5rem;">The ring is <strong>12 WS2812 pixels</strong> on one data line — you can set each index independently (firmware <code>preset</code>&nbsp;6). Flash the app after this server update so the board speaks the same API.</p>
+      <label>Strip preview (syncs from board when online)</label>
+      <div id="ledStripPreview" style="display:flex;gap:4px;flex-wrap:wrap;margin:0.35rem 0 0.75rem;"></div>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="flex:0 0 9rem;min-width:7rem">
+          <label>LED index</label>
+          <select id="ledPixIndex"></select>
+        </div>
+        <div class="field" style="flex:1;min-width:10rem">
+          <label>&nbsp;</label>
+          <button type="button" class="btn-secondary" onclick="ledApplyPickerToIndex()">Set from color picker</button>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:0.35rem;flex-wrap:wrap">
+        <button type="button" class="btn-secondary" onclick="ledTurnIndexOff()">Turn this LED off</button>
+        <button type="button" class="btn-secondary" onclick="ledPushFullStrip()">Apply full strip</button>
       </div>
     </div>
     </div>
@@ -439,6 +475,37 @@
         <div style="font-size:0.72rem;opacity:0.7;margin:0.65rem 0 0.35rem;">Session log (one line per non-empty delta)</div>
         <pre id="transcriptRolling" style="background:#070707;border:1px solid #222;border-radius:8px;padding:0.65rem 0.75rem;font-size:0.8rem;line-height:1.4;max-height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;margin:0;"></pre>
       </div>
+    </div>
+    </div>
+
+    <div class="tab-panel" role="tabpanel" id="tab-translation" aria-labelledby="tabbtn-translation">
+    <div class="card">
+      <p style="font-size:1rem;opacity:0.9;line-height:1.5;margin:0;">Realtime Translation Coming Soon!</p>
+    </div>
+    </div>
+
+    <div class="tab-panel" role="tabpanel" id="tab-docs" aria-labelledby="tabbtn-docs">
+    <div class="card">
+      <h2><span class="icon">📚</span> References & documentation</h2>
+      <p style="font-size:0.85rem;opacity:0.88;line-height:1.5;margin:0 0 1rem;">Official guides for <strong>ESP32-Korvo v1.1</strong> (ESP32-WROVER-E, three analogue mics, 12× WS2812, ESP-Skainet / ESP-SR).</p>
+      <ul class="docs-links" style="list-style:none;padding:0;margin:0;">
+        <li style="margin-bottom:1rem;">
+          <a href="https://github.com/espressif/esp-skainet/blob/master/docs/en/hw-reference/esp32/user-guide-esp32-korvo-v1.1.md" target="_blank" rel="noopener">ESP32-Korvo v1.1 user guide</a>
+          <span style="display:block;font-size:0.75rem;opacity:0.68;margin-top:0.3rem;line-height:1.4;">Getting started, default firmware &amp; voice commands, hardware overview, and links to schematics (Espressif ESP-Skainet docs).</span>
+        </li>
+        <li style="margin-bottom:1rem;">
+          <a href="https://github.com/espressif/esp-skainet" target="_blank" rel="noopener">ESP-Skainet (GitHub)</a>
+          <span style="display:block;font-size:0.75rem;opacity:0.68;margin-top:0.3rem;line-height:1.4;">Voice assistant SDK, examples, and default firmware binaries.</span>
+        </li>
+        <li style="margin-bottom:1rem;">
+          <a href="https://dl.espressif.com/dl/schematics/ESP32-KORVO_V1.1_schematics.pdf" target="_blank" rel="noopener">Mainboard schematics (PDF)</a>
+        </li>
+        <li style="margin-bottom:0;">
+          <a href="https://dl.espressif.com/dl/schematics/ESP32-KORVO-MIC_V1.1_schematics.pdf" target="_blank" rel="noopener">Subboard (mic) schematics (PDF)</a>
+        </li>
+      </ul>
+      <img class="docs-hw-photo" src="https://raw.githubusercontent.com/espressif/esp-skainet/master/docs/_static/esp32-s3-korvo-annotated-photo.png" alt="ESP32-S3-Korvo annotated board overview (ports, buttons, codec, speaker)" loading="lazy" decoding="async">
+      <p style="font-size:0.72rem;opacity:0.65;margin:0.5rem 0 0;line-height:1.4;">Annotated reference from Espressif ESP-Skainet docs — <a href="https://github.com/espressif/esp-skainet/blob/master/docs/_static/esp32-s3-korvo-annotated-photo.png" target="_blank" rel="noopener" class="docs-caption-link">view on GitHub</a>.</p>
     </div>
     </div>
   </div>
@@ -874,6 +941,83 @@
     let espIp = localStorage.getItem('korvo_esp_ip') || '';
     let ledOnline = false;
     let ledPollInterval = null;
+    const KORVO_LED_COUNT_DEFAULT = 12;
+    let korvoLedCount = KORVO_LED_COUNT_DEFAULT;
+    let korvoStripPixels = Array.from({ length: KORVO_LED_COUNT_DEFAULT }, () => [0, 0, 0]);
+    let lastLedState = { on: false, preset: 0, r: 0, g: 0, b: 0, brightness: 180 };
+
+    function ledInitPixSelect() {
+      const sel = document.getElementById('ledPixIndex');
+      if (!sel || sel.dataset.ready === '1') return;
+      sel.innerHTML = '';
+      for (let i = 0; i < KORVO_LED_COUNT_DEFAULT; i++) {
+        const o = document.createElement('option');
+        o.value = String(i);
+        o.textContent = 'LED ' + i;
+        sel.appendChild(o);
+      }
+      sel.dataset.ready = '1';
+    }
+
+    function ledRgbClose(a, b, c, ar, ag, ab) {
+      return Math.abs(a - ar) <= 8 && Math.abs(b - ag) <= 8 && Math.abs(c - ab) <= 8;
+    }
+
+    function syncPixelsFromState(state) {
+      const n = typeof state.led_count === 'number' && state.led_count > 0 ? state.led_count : KORVO_LED_COUNT_DEFAULT;
+      korvoLedCount = n;
+      const preset = Number(state.preset) || 0;
+      const on = !!state.on;
+      if (Array.isArray(state.pixels) && state.pixels.length === n) {
+        korvoStripPixels = state.pixels.map((row) => {
+          if (Array.isArray(row) && row.length >= 3) {
+            return [Math.round(Number(row[0])), Math.round(Number(row[1])), Math.round(Number(row[2]))];
+          }
+          return [0, 0, 0];
+        });
+      }
+      /* Firmware used to leave pix[] at zero while preset 1 drew from r,g,b — avoid treating that as “all LEDs off”. */
+      if (on && preset === 1) {
+        const r = Number(state.r) || 0, g = Number(state.g) || 0, b = Number(state.b) || 0;
+        korvoStripPixels = Array.from({ length: n }, () => [r, g, b]);
+      } else if (!on || preset === 0) {
+        korvoStripPixels = Array.from({ length: n }, () => [0, 0, 0]);
+      } else if (on && preset >= 2 && preset <= 5) {
+        const r = Number(state.r) || 0, g = Number(state.g) || 0, b = Number(state.b) || 0;
+        korvoStripPixels = Array.from({ length: n }, () => [r, g, b]);
+      }
+    }
+
+    function renderLedStripPreview() {
+      const wrap = document.getElementById('ledStripPreview');
+      if (!wrap) return;
+      while (wrap.children.length < korvoLedCount) {
+        const d = document.createElement('div');
+        d.className = 'led-strip-dot';
+        wrap.appendChild(d);
+      }
+      while (wrap.children.length > korvoLedCount) {
+        wrap.removeChild(wrap.lastChild);
+      }
+      for (let i = 0; i < korvoLedCount; i++) {
+        const row = korvoStripPixels[i] || [0, 0, 0];
+        const el = wrap.children[i];
+        el.style.background = 'rgb(' + row[0] + ',' + row[1] + ',' + row[2] + ')';
+        el.title = 'LED ' + i;
+      }
+    }
+
+    function updateNamedColorToggleStyles() {
+      const rows = [['ledTogRed', 255, 0, 0], ['ledTogGreen', 0, 255, 0], ['ledTogBlue', 0, 100, 255], ['ledTogOrange', 255, 150, 0], ['ledTogYellow', 255, 220, 0]];
+      for (let j = 0; j < rows.length; j++) {
+        const id = rows[j][0];
+        const rr = rows[j][1], gg = rows[j][2], bb = rows[j][3];
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const on = lastLedState.on && lastLedState.preset === 1 && ledRgbClose(lastLedState.r, lastLedState.g, lastLedState.b, rr, gg, bb);
+        el.classList.toggle('active', on);
+      }
+    }
 
     function setEspIp() {
       const ip = prompt('Enter ESP32 IP address:', espIp);
@@ -885,20 +1029,32 @@
     }
 
     async function sendLed(data) {
-      if (!espIp) { setEspIp(); return; }
+      if (!espIp) { setEspIp(); return null; }
       try {
         const res = await fetch(`http://${espIp}/api/led`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
         });
-        const state = await res.json();
+        const text = await res.text();
+        if (!res.ok) {
+          let msg = 'LED request failed (' + res.status + ')';
+          try {
+            const err = JSON.parse(text);
+            if (err.error) msg = err.error;
+          } catch (x) { /* ignore */ }
+          toast(msg, 'error');
+          return null;
+        }
+        const state = JSON.parse(text);
         updateLedUI(state);
         return state;
       } catch (e) {
         document.getElementById('ledBadge').className = 'badge disconnected';
         document.getElementById('ledBadge').textContent = 'Board offline';
         ledOnline = false;
+        toast('LED request failed (network)', 'error');
+        return null;
       }
     }
 
@@ -919,14 +1075,28 @@
     }
 
     function updateLedUI(state) {
+      ledInitPixSelect();
+      lastLedState = {
+        on: !!state.on,
+        preset: Number(state.preset) || 0,
+        r: Number(state.r) || 0,
+        g: Number(state.g) || 0,
+        b: Number(state.b) || 0,
+        brightness: Number(state.brightness) || 0,
+      };
+      syncPixelsFromState(state);
       document.getElementById('ledPowerBtn').textContent = state.on ? 'ON' : 'OFF';
       document.getElementById('ledPowerBtn').style.background = state.on ? '#1a472a' : '#222';
       document.getElementById('ledPowerBtn').style.color = state.on ? '#4caf50' : '#666';
       document.getElementById('ledBrightness').value = state.brightness;
       document.getElementById('brightnessVal').textContent = state.brightness;
-      // Convert RGB to hex color
-      const hex = '#' + [state.r, state.g, state.b].map(v => v.toString(16).padStart(2,'0')).join('');
-      document.getElementById('ledColor').value = hex;
+      /* Preset 6 = per-pixel: do not touch the color picker (LED index changes & polls should not clobber it). */
+      if (lastLedState.preset !== 6) {
+        const hex = '#' + [state.r, state.g, state.b].map((v) => Number(v).toString(16).padStart(2, '0')).join('');
+        document.getElementById('ledColor').value = hex;
+      }
+      renderLedStripPreview();
+      updateNamedColorToggleStyles();
     }
 
     async function toggleLed() {
@@ -936,24 +1106,61 @@
 
     async function ledPreset(preset) {
       const hex = document.getElementById('ledColor').value;
-      const r = parseInt(hex.slice(1,3), 16);
-      const g = parseInt(hex.slice(3,5), 16);
-      const b = parseInt(hex.slice(5,7), 16);
-      await sendLed({ on: preset > 0, preset, r, g, b, brightness: parseInt(document.getElementById('ledBrightness').value) });
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      await sendLed({ on: preset > 0, preset, r, g, b, brightness: parseInt(document.getElementById('ledBrightness').value, 10) });
     }
 
-    async function ledFlash(r, g, b) {
-      // Flash doesn't exist on ESP32 yet, so set solid then off after a moment
-      await sendLed({ on: true, preset: 1, r, g, b, brightness: 255 });
-      setTimeout(() => sendLed({ on: false, preset: 0 }), 800);
+    async function ledNamedToggle(r, g, b) {
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || 180;
+      if (lastLedState.on && lastLedState.preset === 1 && ledRgbClose(lastLedState.r, lastLedState.g, lastLedState.b, r, g, b)) {
+        await sendLed({ on: false, preset: 0 });
+      } else {
+        await sendLed({ on: true, preset: 1, r, g, b, brightness: br });
+      }
+    }
+
+    function ledHexToRgb(hex) {
+      return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+    }
+
+    async function ledApplyPickerToIndex() {
+      const idx = parseInt(document.getElementById('ledPixIndex').value, 10);
+      if (isNaN(idx)) return;
+      const hex = document.getElementById('ledColor').value;
+      const rgb = ledHexToRgb(hex);
+      korvoStripPixels[idx] = rgb.slice();
+      renderLedStripPreview();
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || 180;
+      await sendLed({ pixel: { i: idx, r: rgb[0], g: rgb[1], b: rgb[2] }, preset: 6, on: true, brightness: br });
+    }
+
+    async function ledTurnIndexOff() {
+      const idx = parseInt(document.getElementById('ledPixIndex').value, 10);
+      if (isNaN(idx)) return;
+      korvoStripPixels[idx] = [0, 0, 0];
+      renderLedStripPreview();
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || 180;
+      await sendLed({ pixel: { i: idx, r: 0, g: 0, b: 0 }, preset: 6, on: true, brightness: br });
+    }
+
+    async function ledPushFullStrip() {
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || 180;
+      const px = [];
+      for (let i = 0; i < KORVO_LED_COUNT_DEFAULT; i++) {
+        px.push((korvoStripPixels[i] || [0, 0, 0]).slice(0, 3));
+      }
+      await sendLed({ pixels: px, preset: 6, on: true, brightness: br });
     }
 
     // Event listeners for color/brightness changes
     document.getElementById('ledColor').addEventListener('change', async (e) => {
+      if (lastLedState.preset === 6) return;
       const hex = e.target.value;
-      const r = parseInt(hex.slice(1,3), 16);
-      const g = parseInt(hex.slice(3,5), 16);
-      const b = parseInt(hex.slice(5,7), 16);
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
       await sendLed({ r, g, b });
     });
 
@@ -1208,7 +1415,7 @@
       document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => korvoSwitchTab(btn.getAttribute('data-tab')));
       });
-      const valid = ['wifi', 'settings', 'led', 'build', 'audio', 'transcript'];
+      const valid = ['wifi', 'settings', 'led', 'build', 'audio', 'transcript', 'translation', 'docs'];
       let t = '';
       try {
         t = (localStorage.getItem('korvo_dashboard_tab') || '').trim();

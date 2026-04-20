@@ -44,6 +44,7 @@ static volatile struct {
     uint8_t r, g, b;
     uint8_t brightness;
     int auto_off_ms;
+    uint8_t pix[LED_COUNT][3];
 } led_state = {0};
 
 static portMUX_TYPE led_state_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -143,6 +144,17 @@ static void anim_chase(uint8_t r, uint8_t g, uint8_t b, uint8_t bright) {
     pos = (pos + 1) % LED_COUNT;
 }
 
+/* Preset 6: per-LED colors (WS2812 strip has LED_COUNT independent pixels). */
+static void anim_pixels(const uint8_t px[LED_COUNT][3], uint8_t bright) {
+    if (!strip) return;
+    float s = bright / 255.0f;
+    for (int i = 0; i < LED_COUNT; i++) {
+        led_strip_set_pixel(strip, i,
+            (uint8_t)(px[i][0] * s), (uint8_t)(px[i][1] * s), (uint8_t)(px[i][2] * s));
+    }
+    led_strip_refresh(strip);
+}
+
 static void led_task(void *arg) {
     const led_strip_config_t led_config = {
         .strip_gpio_num = LED_GPIO,
@@ -162,7 +174,7 @@ static void led_task(void *arg) {
     vTaskDelay(pdMS_TO_TICKS(100));
 
     while (1) {
-        struct { bool on; int preset; uint8_t r,g,b; uint8_t brightness; int auto_off_ms; } s;
+        struct { bool on; int preset; uint8_t r,g,b; uint8_t brightness; int auto_off_ms; uint8_t px[LED_COUNT][3]; } s;
         portENTER_CRITICAL(&led_state_mux);
         s.on = led_state.on;
         s.preset = led_state.preset;
@@ -171,6 +183,7 @@ static void led_task(void *arg) {
         s.b = led_state.b;
         s.brightness = led_state.brightness;
         s.auto_off_ms = led_state.auto_off_ms;
+        memcpy(s.px, (const void *)led_state.pix, sizeof(s.px));
         if (s.auto_off_ms > 0 && s.on) {
             led_state.auto_off_ms = 0;
             s.auto_off_ms = 0;
@@ -189,6 +202,7 @@ static void led_task(void *arg) {
             case 3: anim_rainbow(s.brightness); vTaskDelay(pdMS_TO_TICKS(35)); break;
             case 4: anim_breathe(s.r, s.g, s.b, s.brightness); vTaskDelay(pdMS_TO_TICKS(25)); break;
             case 5: anim_chase(s.r, s.g, s.b, s.brightness); vTaskDelay(pdMS_TO_TICKS(45)); break;
+            case 6: anim_pixels(s.px, s.brightness); vTaskDelay(pdMS_TO_TICKS(50)); break;
             case 10: {
                 for(int i=0; i<=255; i+=5) { anim_solid(0, 255, 0, i); vTaskDelay(pdMS_TO_TICKS(10)); }
                 vTaskDelay(pdMS_TO_TICKS(200));
@@ -313,12 +327,13 @@ static esp_err_t audio_stream_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-#define LED_POST_MAX 512
+#define LED_POST_MAX 1600
 
 static esp_err_t led_send_state_json(httpd_req_t *req) {
     bool on;
     int preset;
     uint8_t r, g, b, br;
+    uint8_t px[LED_COUNT][3];
     portENTER_CRITICAL(&led_state_mux);
     on = led_state.on;
     preset = led_state.preset;
@@ -326,13 +341,45 @@ static esp_err_t led_send_state_json(httpd_req_t *req) {
     g = led_state.g;
     b = led_state.b;
     br = led_state.brightness;
+    memcpy(px, (const void *)led_state.pix, sizeof(px));
     portEXIT_CRITICAL(&led_state_mux);
-    char out[200];
+    /* led_state.pix is only maintained for preset 6; solid / animations use r,g,b on hardware. */
+    if (on && preset == 1) {
+        for (int i = 0; i < LED_COUNT; i++) {
+            px[i][0] = r;
+            px[i][1] = g;
+            px[i][2] = b;
+        }
+    } else if (!on || preset == 0) {
+        memset(px, 0, sizeof(px));
+    } else if (on && preset >= 2 && preset <= 5) {
+        for (int i = 0; i < LED_COUNT; i++) {
+            px[i][0] = r;
+            px[i][1] = g;
+            px[i][2] = b;
+        }
+    }
+    char out[768];
     int n = snprintf(out, sizeof(out),
-        "{\"on\":%s,\"preset\":%d,\"r\":%u,\"g\":%u,\"b\":%u,\"brightness\":%u}",
-        on ? "true" : "false", preset, (unsigned)r, (unsigned)g, (unsigned)b, (unsigned)br);
+        "{\"on\":%s,\"preset\":%d,\"r\":%u,\"g\":%u,\"b\":%u,\"brightness\":%u,\"led_count\":%d,\"pixels\":[",
+        on ? "true" : "false", preset, (unsigned)r, (unsigned)g, (unsigned)b, (unsigned)br, LED_COUNT);
     if (n <= 0 || (size_t)n >= sizeof(out)) {
         return httpd_resp_send_500(req);
+    }
+    for (int i = 0; i < LED_COUNT; i++) {
+        int add = snprintf(out + n, sizeof(out) - (size_t)n, "%s[%u,%u,%u]",
+            (i > 0) ? "," : "", (unsigned)px[i][0], (unsigned)px[i][1], (unsigned)px[i][2]);
+        if (add <= 0 || (size_t)(n + add) >= sizeof(out)) {
+            return httpd_resp_send_500(req);
+        }
+        n += add;
+    }
+    {
+        int tail = snprintf(out + n, sizeof(out) - (size_t)n, "]}");
+        if (tail <= 0 || (size_t)(n + tail) >= sizeof(out)) {
+            return httpd_resp_send_500(req);
+        }
+        n += tail;
     }
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
@@ -351,25 +398,66 @@ static esp_err_t led_api_options_handler(httpd_req_t *req) {
     return httpd_resp_send(req, NULL, 0);
 }
 
+/* Read POST body; supports Content-Length missing or zero (read until drain). */
+static int led_http_read_body(httpd_req_t *req, char *out, size_t cap) {
+    int declared = req->content_len;
+    if (declared > (int)(cap - 1)) {
+        return -2;
+    }
+    if (declared > 0) {
+        int got = 0;
+        while (got < declared) {
+            int r = httpd_req_recv(req, out + got, (size_t)(declared - got));
+            if (r <= 0) {
+                return -1;
+            }
+            got += r;
+        }
+        out[got] = '\0';
+        return got;
+    }
+    int got = 0;
+    for (;;) {
+        int space = (int)cap - 1 - got;
+        if (space <= 0) {
+            break;
+        }
+        int r = httpd_req_recv(req, out + got, (size_t)space);
+        if (r < 0) {
+            return -1;
+        }
+        if (r == 0) {
+            break;
+        }
+        got += r;
+    }
+    out[got] = '\0';
+    return got;
+}
+
 static esp_err_t led_api_post_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    int total = req->content_len;
-    if (total < 0 || total > LED_POST_MAX) {
+    int declared = req->content_len;
+    if (declared > LED_POST_MAX) {
         httpd_resp_set_status(req, "400 Bad Request");
         httpd_resp_set_type(req, "application/json");
         return httpd_resp_send(req, "{\"error\":\"bad content length\"}", HTTPD_RESP_USE_STRLEN);
     }
     char body[LED_POST_MAX + 1];
     memset(body, 0, sizeof(body));
-    int cur = 0;
-    while (cur < total) {
-        int r = httpd_req_recv(req, body + cur, (size_t)(total - cur));
-        if (r <= 0) {
-            httpd_resp_set_status(req, "400 Bad Request");
-            httpd_resp_set_type(req, "application/json");
-            return httpd_resp_send(req, "{\"error\":\"recv\"}", HTTPD_RESP_USE_STRLEN);
+    int total = led_http_read_body(req, body, sizeof(body));
+    if (total < 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        if (total == -2) {
+            return httpd_resp_send(req, "{\"error\":\"body too large\"}", HTTPD_RESP_USE_STRLEN);
         }
-        cur += r;
+        return httpd_resp_send(req, "{\"error\":\"recv\"}", HTTPD_RESP_USE_STRLEN);
+    }
+    if (total == 0) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_send(req, "{\"error\":\"empty body\"}", HTTPD_RESP_USE_STRLEN);
     }
     cJSON *root = cJSON_Parse(body);
     if (!root) {
@@ -377,66 +465,202 @@ static esp_err_t led_api_post_handler(httpd_req_t *req) {
         httpd_resp_set_type(req, "application/json");
         return httpd_resp_send(req, "{\"error\":\"invalid json\"}", HTTPD_RESP_USE_STRLEN);
     }
+
+    bool json_on_present = false;
+    bool json_on_value = false;
+    const cJSON *j_on = cJSON_GetObjectItemCaseSensitive(root, "on");
+    if (cJSON_IsBool(j_on)) {
+        json_on_present = true;
+        json_on_value = cJSON_IsTrue(j_on);
+    }
+
+    bool json_pixels = false;
+    uint8_t pxcopy[LED_COUNT][3];
+    const cJSON *jpx = cJSON_GetObjectItemCaseSensitive(root, "pixels");
+    if (cJSON_IsArray(jpx) && cJSON_GetArraySize(jpx) == LED_COUNT) {
+        json_pixels = true;
+        for (int i = 0; i < LED_COUNT; i++) {
+            pxcopy[i][0] = 0;
+            pxcopy[i][1] = 0;
+            pxcopy[i][2] = 0;
+            const cJSON *cell = cJSON_GetArrayItem(jpx, i);
+            if (cJSON_IsArray(cell) && cJSON_GetArraySize(cell) >= 3) {
+                for (int k = 0; k < 3; k++) {
+                    const cJSON *cv = cJSON_GetArrayItem(cell, k);
+                    double v = cJSON_IsNumber(cv) ? cJSON_GetNumberValue(cv) : 0.0;
+                    if (v < 0) {
+                        v = 0;
+                    }
+                    if (v > 255) {
+                        v = 255;
+                    }
+                    pxcopy[i][k] = (uint8_t)v;
+                }
+            }
+        }
+    }
+
+    bool json_one = false;
+    int one_i = 0;
+    uint8_t one_r = 0, one_g = 0, one_b = 0;
+    const cJSON *jone = cJSON_GetObjectItemCaseSensitive(root, "pixel");
+    if (cJSON_IsObject(jone)) {
+        const cJSON *ji = cJSON_GetObjectItemCaseSensitive(jone, "i");
+        if (cJSON_IsNumber(ji)) {
+            int ix = (int)cJSON_GetNumberValue(ji);
+            if (ix >= 0 && ix < LED_COUNT) {
+                json_one = true;
+                one_i = ix;
+                const cJSON *jr = cJSON_GetObjectItemCaseSensitive(jone, "r");
+                const cJSON *jg = cJSON_GetObjectItemCaseSensitive(jone, "g");
+                const cJSON *jb = cJSON_GetObjectItemCaseSensitive(jone, "b");
+                double vr = cJSON_IsNumber(jr) ? cJSON_GetNumberValue(jr) : 0.0;
+                double vg = cJSON_IsNumber(jg) ? cJSON_GetNumberValue(jg) : 0.0;
+                double vb = cJSON_IsNumber(jb) ? cJSON_GetNumberValue(jb) : 0.0;
+                if (vr < 0) {
+                    vr = 0;
+                }
+                if (vr > 255) {
+                    vr = 255;
+                }
+                if (vg < 0) {
+                    vg = 0;
+                }
+                if (vg > 255) {
+                    vg = 255;
+                }
+                if (vb < 0) {
+                    vb = 0;
+                }
+                if (vb > 255) {
+                    vb = 255;
+                }
+                one_r = (uint8_t)vr;
+                one_g = (uint8_t)vg;
+                one_b = (uint8_t)vb;
+            }
+        }
+    }
+
+    bool json_preset = false;
+    int json_preset_val = 0;
+    const cJSON *jpre = cJSON_GetObjectItemCaseSensitive(root, "preset");
+    if (cJSON_IsNumber(jpre)) {
+        json_preset = true;
+        json_preset_val = (int)cJSON_GetNumberValue(jpre);
+        if (json_preset_val < 0) {
+            json_preset_val = 0;
+        }
+        if (json_preset_val > 20) {
+            json_preset_val = 20;
+        }
+    }
+    bool json_r = false, json_g = false, json_b = false, json_br = false;
+    uint8_t v_r = 0, v_g = 0, v_b = 0, v_br = 0;
+    const cJSON *jr = cJSON_GetObjectItemCaseSensitive(root, "r");
+    if (cJSON_IsNumber(jr)) {
+        double v = cJSON_GetNumberValue(jr);
+        if (v < 0) {
+            v = 0;
+        }
+        if (v > 255) {
+            v = 255;
+        }
+        v_r = (uint8_t)v;
+        json_r = true;
+    }
+    const cJSON *jg = cJSON_GetObjectItemCaseSensitive(root, "g");
+    if (cJSON_IsNumber(jg)) {
+        double v = cJSON_GetNumberValue(jg);
+        if (v < 0) {
+            v = 0;
+        }
+        if (v > 255) {
+            v = 255;
+        }
+        v_g = (uint8_t)v;
+        json_g = true;
+    }
+    const cJSON *jb = cJSON_GetObjectItemCaseSensitive(root, "b");
+    if (cJSON_IsNumber(jb)) {
+        double v = cJSON_GetNumberValue(jb);
+        if (v < 0) {
+            v = 0;
+        }
+        if (v > 255) {
+            v = 255;
+        }
+        v_b = (uint8_t)v;
+        json_b = true;
+    }
+    const cJSON *jbr = cJSON_GetObjectItemCaseSensitive(root, "brightness");
+    if (cJSON_IsNumber(jbr)) {
+        double v = cJSON_GetNumberValue(jbr);
+        if (v < 0) {
+            v = 0;
+        }
+        if (v > 255) {
+            v = 255;
+        }
+        v_br = (uint8_t)v;
+        json_br = true;
+    }
+
     portENTER_CRITICAL(&led_state_mux);
     {
-        const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "on");
-        if (cJSON_IsBool(item)) {
-            led_state.on = cJSON_IsTrue(item);
+        if (json_preset) {
+            led_state.preset = json_preset_val;
         }
-        item = cJSON_GetObjectItemCaseSensitive(root, "preset");
-        if (cJSON_IsNumber(item)) {
-            int p = (int)cJSON_GetNumberValue(item);
-            if (p < 0) {
-                p = 0;
-            }
-            if (p > 20) {
-                p = 20;
-            }
-            led_state.preset = p;
+        if (json_r) {
+            led_state.r = v_r;
         }
-        item = cJSON_GetObjectItemCaseSensitive(root, "r");
-        if (cJSON_IsNumber(item)) {
-            double v = cJSON_GetNumberValue(item);
-            if (v < 0) {
-                v = 0;
-            }
-            if (v > 255) {
-                v = 255;
-            }
-            led_state.r = (uint8_t)v;
+        if (json_g) {
+            led_state.g = v_g;
         }
-        item = cJSON_GetObjectItemCaseSensitive(root, "g");
-        if (cJSON_IsNumber(item)) {
-            double v = cJSON_GetNumberValue(item);
-            if (v < 0) {
-                v = 0;
-            }
-            if (v > 255) {
-                v = 255;
-            }
-            led_state.g = (uint8_t)v;
+        if (json_b) {
+            led_state.b = v_b;
         }
-        item = cJSON_GetObjectItemCaseSensitive(root, "b");
-        if (cJSON_IsNumber(item)) {
-            double v = cJSON_GetNumberValue(item);
-            if (v < 0) {
-                v = 0;
-            }
-            if (v > 255) {
-                v = 255;
-            }
-            led_state.b = (uint8_t)v;
+        if (json_br) {
+            led_state.brightness = v_br;
         }
-        item = cJSON_GetObjectItemCaseSensitive(root, "brightness");
-        if (cJSON_IsNumber(item)) {
-            double v = cJSON_GetNumberValue(item);
-            if (v < 0) {
-                v = 0;
+        if (json_one) {
+            led_state.pix[one_i][0] = one_r;
+            led_state.pix[one_i][1] = one_g;
+            led_state.pix[one_i][2] = one_b;
+            led_state.preset = 6;
+            if (!json_on_present) {
+                led_state.on = true;
             }
-            if (v > 255) {
-                v = 255;
+        }
+        if (json_pixels) {
+            memcpy((void *)led_state.pix, pxcopy, sizeof(pxcopy));
+            led_state.preset = 6;
+            if (!json_on_present) {
+                led_state.on = true;
             }
-            led_state.brightness = (uint8_t)v;
+        }
+        if (json_on_present) {
+            led_state.on = json_on_value;
+        }
+        /* Keep global r,g,b in sync with per-pixel mode so JSON clients / UIs stay coherent. */
+        if (json_pixels) {
+            led_state.r = led_state.pix[0][0];
+            led_state.g = led_state.pix[0][1];
+            led_state.b = led_state.pix[0][2];
+        } else if (json_one) {
+            led_state.r = one_r;
+            led_state.g = one_g;
+            led_state.b = one_b;
+        }
+        /* Mirror hardware appearance into pix[] so GET /pixels matches solid & off states. */
+        if (!led_state.on || led_state.preset == 0) {
+            memset((void *)led_state.pix, 0, sizeof(led_state.pix));
+        } else if (led_state.preset == 1) {
+            for (int i = 0; i < LED_COUNT; i++) {
+                led_state.pix[i][0] = led_state.r;
+                led_state.pix[i][1] = led_state.g;
+                led_state.pix[i][2] = led_state.b;
+            }
         }
     }
     portEXIT_CRITICAL(&led_state_mux);
