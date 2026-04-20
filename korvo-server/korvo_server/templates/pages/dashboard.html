@@ -10,7 +10,37 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #0a0a0a; color: #e0e0e0; min-height: 100vh;
     }
-    .container { max-width: 760px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .container { max-width: 880px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+    /* ─── Top tabs ─── */
+    .tab-bar {
+      display: flex; flex-wrap: nowrap; gap: 0.35rem;
+      margin-bottom: 1.25rem; padding: 0.35rem 0 0;
+      border-bottom: 1px solid #222;
+      position: sticky; top: 0; z-index: 40;
+      background: linear-gradient(to bottom, #0a0a0a 70%, transparent);
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .tab-btn {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      gap: 0.15rem; min-width: 4.25rem; padding: 0.45rem 0.5rem 0.55rem;
+      background: transparent; border: 1px solid transparent;
+      border-radius: 10px 10px 0 0; color: #777;
+      font-size: 0.65rem; font-weight: 500; cursor: pointer; transition: color 0.15s, background 0.15s, border 0.15s;
+    }
+    .tab-btn .tab-ico { font-size: 1.35rem; line-height: 1; }
+    .tab-btn:hover { color: #ccc; background: #151515; }
+    .tab-btn.active {
+      color: #fff; background: #141414; border-color: #333 #333 #141414;
+      margin-bottom: -1px; position: relative; z-index: 1;
+    }
+    .tab-btn:focus-visible { outline: 2px solid #e74c3c; outline-offset: 2px; }
+    .tab-panel { display: none; margin-bottom: 0.5rem; }
+    .tab-panel.active { display: block; }
+    .tab-panel .card:last-child { margin-bottom: 0; }
 
     header {
       display: flex; align-items: center; gap: 1rem;
@@ -199,6 +229,17 @@
       </div>
     </header>
 
+    <nav class="tab-bar" role="tablist" aria-label="Dashboard sections">
+      <button type="button" class="tab-btn active" role="tab" id="tabbtn-wifi" aria-selected="true" aria-controls="tab-wifi" data-tab="wifi"><span class="tab-ico" aria-hidden="true">📶</span>WiFi</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-settings" aria-selected="false" aria-controls="tab-settings" data-tab="settings"><span class="tab-ico" aria-hidden="true">⚙️</span>Settings</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-led" aria-selected="false" aria-controls="tab-led" data-tab="led"><span class="tab-ico" aria-hidden="true">💡</span>LED</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-build" aria-selected="false" aria-controls="tab-build" data-tab="build"><span class="tab-ico" aria-hidden="true">🔨</span>Build</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-audio" aria-selected="false" aria-controls="tab-audio" data-tab="audio"><span class="tab-ico" aria-hidden="true">🎵</span>Audio</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-transcript" aria-selected="false" aria-controls="tab-transcript" data-tab="transcript"><span class="tab-ico" aria-hidden="true">📝</span>ASR</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-config" aria-selected="false" aria-controls="tab-config" data-tab="config"><span class="tab-ico" aria-hidden="true">📄</span>Config</button>
+    </nav>
+
+    <div class="tab-panel active" role="tabpanel" id="tab-wifi" aria-labelledby="tabbtn-wifi">
     <!-- WiFi Setup -->
     <div class="card">
       <h2>
@@ -232,7 +273,9 @@
         <div id="savedList"></div>
       </div>
     </div>
+    </div>
 
+    <div class="tab-panel" role="tabpanel" id="tab-settings" aria-labelledby="tabbtn-settings">
     <!-- Settings -->
     <div class="card">
       <h2><span class="icon">⚙️</span> Agent Settings</h2>
@@ -266,7 +309,9 @@
         <button class="btn-secondary" onclick="saveSettings()">Save Settings</button>
       </div>
     </div>
+    </div>
 
+    <div class="tab-panel" role="tabpanel" id="tab-led" aria-labelledby="tabbtn-led">
     <!-- LED Control -->
     <div class="card" id="ledCard">
       <h2>
@@ -309,7 +354,9 @@
         <button class="btn-secondary" onclick="ledFlash(255,150,0)" style="background:#4a2f00;color:#ff9800">Orange Flash</button>
       </div>
     </div>
+    </div>
 
+    <div class="tab-panel" role="tabpanel" id="tab-build" aria-labelledby="tabbtn-build">
     <!-- Build & Flash -->
     <div class="card">
       <h2>
@@ -348,7 +395,9 @@
         <div class="terminal-output" id="terminalOutput"></div>
       </div>
     </div>
+    </div>
 
+    <div class="tab-panel" role="tabpanel" id="tab-audio" aria-labelledby="tabbtn-audio">
     <!-- Audio Streaming -->
     <div class="card" id="audioCard">
       <h2>
@@ -367,7 +416,9 @@
       <p id="audioStreamStatus" style="font-size:0.8rem;margin-top:0.75rem;padding:0.5rem 0.65rem;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:8px;line-height:1.4;min-height:2.5rem;">Idle — uses Web Audio (same WAV → s16le @ 16 kHz as <code>listen.sh</code> / relay). HTML5 <code>&lt;audio&gt;</code> cannot play this infinite chunked stream reliably.</p>
       <p style="font-size:0.75rem;opacity:0.75;margin-top:0.5rem;line-height:1.4;">Default URL: same-origin <code>/api/audio/relay?url=</code> + encoded <code>http://&lt;board&gt;/api/audio/stream</code>. Uncheck relay only if your browser can reach the board IP directly.</p>
     </div>
+    </div>
 
+    <div class="tab-panel" role="tabpanel" id="tab-transcript" aria-labelledby="tabbtn-transcript">
     <!-- Live transcript (Whisper via server WebSocket) -->
     <div class="card" id="transcribeCard">
       <h2>
@@ -384,16 +435,20 @@
       <button class="btn-primary" id="transcribeBtn" onclick="toggleLiveTranscribe()" style="width:100%;padding:0.8rem;">▶️ Start live transcript</button>
       <p id="transcribeStatus" style="font-size:0.8rem;margin-top:0.65rem;padding:0.5rem 0.65rem;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:8px;line-height:1.4;min-height:2.2rem;">Idle — WebSocket <code>/ws/audio/transcribe</code></p>
       <div style="margin-top:0.75rem;">
-        <div style="font-size:0.72rem;opacity:0.7;margin-bottom:0.35rem;">Current (last ~5s of audio, refreshed ~1.25s)</div>
+        <div style="font-size:0.72rem;opacity:0.7;margin-bottom:0.35rem;">Running transcript (server sends only <strong>delta</strong> words after overlap match)</div>
         <div id="transcriptLive" style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:0.85rem 1rem;font-size:1.05rem;line-height:1.5;min-height:4.5rem;white-space:pre-wrap;word-break:break-word;color:#e6edf3;">—</div>
-        <div style="font-size:0.72rem;opacity:0.7;margin:0.65rem 0 0.35rem;">Session log (each new decode)</div>
+        <div style="font-size:0.72rem;opacity:0.7;margin:0.65rem 0 0.35rem;">Session log (one line per non-empty delta)</div>
         <pre id="transcriptRolling" style="background:#070707;border:1px solid #222;border-radius:8px;padding:0.65rem 0.75rem;font-size:0.8rem;line-height:1.4;max-height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;margin:0;"></pre>
       </div>
     </div>
+    </div>
+
+    <div class="tab-panel" role="tabpanel" id="tab-config" aria-labelledby="tabbtn-config">
     <!-- Config Preview -->
     <div class="card">
       <h2><span class="icon">📄</span> Config JSON Preview</h2>
       <pre id="configPreview" style="background:#0a0a0a; border:1px solid #222; border-radius:8px; padding:1rem; font-size:0.8rem; overflow-x:auto; max-height:300px;"></pre>
+    </div>
     </div>
   </div>
 
@@ -869,7 +924,6 @@
         const res = await fetch(`http://${espIp}/api/led`, { signal: AbortSignal.timeout(2000) });
         const state = await res.json();
         ledOnline = true;
-        document.getElementById('ledCard').style.display = 'block';
         document.getElementById('ledBadge').className = 'badge connected';
         document.getElementById('ledBadge').textContent = espIp;
         updateLedUI(state);
@@ -971,7 +1025,7 @@
       statusEl.textContent = 'Connecting…';
       live.textContent = '…';
       roll.textContent = '';
-      window._korvoLastPartialLine = '';
+      window._korvoTranscribeAccum = '';
       transcribeWs = new WebSocket(wsUrl);
       transcribeWs.onopen = () => {
         badge.className = 'badge scanning';
@@ -993,18 +1047,27 @@
           return;
         }
         if (msg.type === 'partial') {
-          const t = (msg.text || '').trim();
+          const full = (msg.text || '').trim();
+          const deltaRaw = msg.delta !== undefined && msg.delta !== null ? String(msg.delta) : '';
+          const delta = deltaRaw.trim();
           const liveEl = document.getElementById('transcriptLive');
           const rollEl = document.getElementById('transcriptRolling');
-          liveEl.textContent = t || '…';
-          if (t && t !== window._korvoLastPartialLine) {
-            window._korvoLastPartialLine = t;
+          if (delta) {
+            window._korvoTranscribeAccum = (window._korvoTranscribeAccum ? window._korvoTranscribeAccum + ' ' : '') + delta;
+          } else if (full && !window._korvoTranscribeAccum) {
+            window._korvoTranscribeAccum = full;
+          }
+          liveEl.textContent = window._korvoTranscribeAccum || full || '…';
+          if (delta) {
             const ts = msg.t_unix ? new Date(msg.t_unix * 1000).toLocaleTimeString() : new Date().toLocaleTimeString();
             const prev = rollEl.textContent.trim();
-            rollEl.textContent = (prev ? prev + '\n' : '') + '[' + ts + '] ' + t;
+            rollEl.textContent = (prev ? prev + '\n' : '') + '[' + ts + '] ' + delta;
             rollEl.scrollTop = rollEl.scrollHeight;
           }
-          statusEl.textContent = 'Heard: ' + (t ? '"' + t.slice(0, 72) + (t.length > 72 ? '…' : '') + '"' : '(silence)') + ' · ' + (msg.t_unix ? new Date(msg.t_unix * 1000).toLocaleTimeString() : '');
+          const hint = delta || full;
+          statusEl.textContent = hint
+            ? (delta ? 'Δ ' : 'Window ') + hint.slice(0, 80) + (hint.length > 80 ? '…' : '') + ' · ' + (msg.t_unix ? new Date(msg.t_unix * 1000).toLocaleTimeString() : '')
+            : '(no new words this step)';
           return;
         }
         if (msg.type === 'error') {
@@ -1140,13 +1203,39 @@
       if (espIp) bi.value = espIp;
       else if (savedBoard) bi.value = savedBoard;
       else bi.value = 'korvo.local';
-      if (espIp || savedBoard || bi.value.trim()) {
-        document.getElementById('audioCard').style.display = 'block';
-      }
       if (espIp) checkLedBoard();
     }
 
+    function korvoSwitchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach((b) => {
+        const on = b.getAttribute('data-tab') === tabId;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      document.querySelectorAll('.tab-panel').forEach((p) => {
+        p.classList.toggle('active', p.id === 'tab-' + tabId);
+      });
+      try {
+        localStorage.setItem('korvo_dashboard_tab', tabId);
+      } catch (e) {}
+    }
+
+    function korvoInitTabs() {
+      document.querySelectorAll('.tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => korvoSwitchTab(btn.getAttribute('data-tab')));
+      });
+      const valid = ['wifi', 'settings', 'led', 'build', 'audio', 'transcript', 'config'];
+      let t = '';
+      try {
+        t = (localStorage.getItem('korvo_dashboard_tab') || '').trim();
+      } catch (e) {}
+      if (t && valid.indexOf(t) >= 0) {
+        korvoSwitchTab(t);
+      }
+    }
+
     // ─── Init ───
+    korvoInitTabs();
     loadWifi();
     bootstrapAfterSettings();
     loadConfig();

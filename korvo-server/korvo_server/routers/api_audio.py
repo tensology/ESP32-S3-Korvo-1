@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import shutil
 import struct
@@ -14,19 +15,22 @@ from pydantic import BaseModel, Field
 from korvo_server.config import RECORDINGS_DIR
 
 router = APIRouter(tags=["audio"])
+log = logging.getLogger(__name__)
 
 
 def _allowed_upstream(url: str) -> bool:
     try:
-        p = urlparse(url)
+        p = urlparse((url or "").strip())
     except Exception:
         return False
     if p.scheme not in ("http", "https"):
         return False
     if not p.hostname:
         return False
-    hn = p.hostname.lower()
+    hn = p.hostname.lower().rstrip(".")
     if hn in ("localhost", "127.0.0.1", "korvo.local", "0.0.0.0"):
+        return True
+    if hn.endswith(".local"):
         return True
     if hn.startswith("192.168."):
         return True
@@ -160,14 +164,24 @@ async def relay_board_audio(
             "Accept": "*/*",
             "User-Agent": "korvo-server/relay",
         }
-        async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=True) as client:
-            async with client.stream("GET", url, headers=headers) as resp:
-                if resp.status_code != 200:
-                    detail = (await resp.aread())[:1200].decode(errors="replace")
-                    raise HTTPException(resp.status_code, f"Upstream: {detail}")
-                async for chunk in resp.aiter_bytes(16384):
-                    if chunk:
-                        yield chunk
+        try:
+            async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=True) as client:
+                try:
+                    async with client.stream("GET", url, headers=headers) as resp:
+                        if resp.status_code != 200:
+                            detail = (await resp.aread())[:1200].decode(errors="replace")
+                            log.warning("relay upstream HTTP %s: %s", resp.status_code, detail[:200])
+                            return
+                        try:
+                            async for chunk in resp.aiter_bytes(16384):
+                                if chunk:
+                                    yield chunk
+                        except httpx.HTTPError as e:
+                            log.warning("relay stream read ended: %s", e)
+                except httpx.HTTPError as e:
+                    log.warning("relay open stream failed: %s", e)
+        except httpx.HTTPError as e:
+            log.warning("relay client error: %s", e)
 
     return StreamingResponse(
         stream(),

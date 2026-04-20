@@ -8,6 +8,7 @@ idf_component_register(
         nvs_flash
         driver
         esp_http_server
+        json
         esp_timer
         hardware_driver
         esp_codec_dev

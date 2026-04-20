@@ -39,7 +39,7 @@ Local transcription uses **[pywhispercpp](https://github.com/absadiki/pywhisperc
 
 1. Pulls **`http://<board>/api/audio/stream`** (same WAV / 16 kHz mono PCM as the relay).
 2. Strips the 44-byte header and buffers PCM.
-3. Every **`step_sec`** (default 2s), runs Whisper on the last **`window_sec`** (default 6s) of audio and sends JSON **`{ "type": "partial", "text": "..." }`**.
+3. Every **`step_sec`** (default 1.25s), runs Whisper on the last **`window_sec`** (default 5s) of audio and sends JSON **`{ "type": "partial", "text": "…full window…", "delta": "…new words only…" }`**. **`delta`** removes words already present at the end of the previous window (word-aligned overlap), so the UI can append without repeating the overlapped span.
 
 Endpoint (for custom clients):
 

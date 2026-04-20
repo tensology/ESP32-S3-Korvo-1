@@ -12,6 +12,7 @@
 #include "esp_netif.h"
 #include "nvs_flash.h"
 #include "esp_http_server.h"
+#include "cJSON.h"
 #include "mdns.h"
 #include "led_strip.h"
 #include "esp_board_init.h"
@@ -44,6 +45,8 @@ static volatile struct {
     uint8_t brightness;
     int auto_off_ms;
 } led_state = {0};
+
+static portMUX_TYPE led_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static led_strip_handle_t strip = NULL;
 
@@ -92,6 +95,54 @@ static void anim_breathe(uint8_t r, uint8_t g, uint8_t b, uint8_t bright) {
     if (step >= 100 || step <= 0) dir *= -1;
 }
 
+/* Adafruit-style color wheel (0–255) → RGB */
+static void wheel_rgb(uint8_t pos, uint8_t *rp, uint8_t *gp, uint8_t *bp) {
+    pos = (uint8_t)(255 - pos);
+    if (pos < 85) {
+        *rp = (uint8_t)(255 - pos * 3);
+        *gp = 0;
+        *bp = (uint8_t)(pos * 3);
+    } else if (pos < 170) {
+        pos = (uint8_t)(pos - 85);
+        *rp = 0;
+        *gp = (uint8_t)(pos * 3);
+        *bp = (uint8_t)(255 - pos * 3);
+    } else {
+        pos = (uint8_t)(pos - 170);
+        *rp = (uint8_t)(pos * 3);
+        *gp = (uint8_t)(255 - pos * 3);
+        *bp = 0;
+    }
+}
+
+static void anim_rainbow(uint8_t bright) {
+    static uint8_t off = 0;
+    if (!strip) return;
+    float s = bright / 255.0f;
+    for (int i = 0; i < LED_COUNT; i++) {
+        uint8_t r, g, b;
+        wheel_rgb((uint8_t)(off + (uint8_t)(i * (256 / LED_COUNT))), &r, &g, &b);
+        led_strip_set_pixel(strip, i, (uint8_t)(r * s), (uint8_t)(g * s), (uint8_t)(b * s));
+    }
+    led_strip_refresh(strip);
+    off = (uint8_t)(off + 4);
+}
+
+static void anim_chase(uint8_t r, uint8_t g, uint8_t b, uint8_t bright) {
+    static int pos = 0;
+    if (!strip) return;
+    float s = bright / 255.0f;
+    led_strip_clear(strip);
+    for (int k = 0; k < 4; k++) {
+        int i = (pos + k) % LED_COUNT;
+        float fade = (4.0f - (float)k) / 4.0f;
+        led_strip_set_pixel(strip, i,
+            (uint8_t)(r * fade * s), (uint8_t)(g * fade * s), (uint8_t)(b * fade * s));
+    }
+    led_strip_refresh(strip);
+    pos = (pos + 1) % LED_COUNT;
+}
+
 static void led_task(void *arg) {
     const led_strip_config_t led_config = {
         .strip_gpio_num = LED_GPIO,
@@ -112,6 +163,7 @@ static void led_task(void *arg) {
 
     while (1) {
         struct { bool on; int preset; uint8_t r,g,b; uint8_t brightness; int auto_off_ms; } s;
+        portENTER_CRITICAL(&led_state_mux);
         s.on = led_state.on;
         s.preset = led_state.preset;
         s.r = led_state.r;
@@ -119,11 +171,11 @@ static void led_task(void *arg) {
         s.b = led_state.b;
         s.brightness = led_state.brightness;
         s.auto_off_ms = led_state.auto_off_ms;
-
         if (s.auto_off_ms > 0 && s.on) {
             led_state.auto_off_ms = 0;
             s.auto_off_ms = 0;
         }
+        portEXIT_CRITICAL(&led_state_mux);
 
         if (!s.on || s.preset == 0) {
             anim_clear();
@@ -134,7 +186,9 @@ static void led_task(void *arg) {
         switch (s.preset) {
             case 1: anim_solid(s.r, s.g, s.b, s.brightness); vTaskDelay(pdMS_TO_TICKS(50)); break;
             case 2: anim_spinner(s.r, s.g, s.b, s.brightness); vTaskDelay(pdMS_TO_TICKS(60)); break;
+            case 3: anim_rainbow(s.brightness); vTaskDelay(pdMS_TO_TICKS(35)); break;
             case 4: anim_breathe(s.r, s.g, s.b, s.brightness); vTaskDelay(pdMS_TO_TICKS(25)); break;
+            case 5: anim_chase(s.r, s.g, s.b, s.brightness); vTaskDelay(pdMS_TO_TICKS(45)); break;
             case 10: {
                 for(int i=0; i<=255; i+=5) { anim_solid(0, 255, 0, i); vTaskDelay(pdMS_TO_TICKS(10)); }
                 vTaskDelay(pdMS_TO_TICKS(200));
@@ -144,8 +198,10 @@ static void led_task(void *arg) {
                 vTaskDelay(pdMS_TO_TICKS(200));
                 for(int i=255; i>=0; i-=5) { anim_solid(0, 255, 0, i); vTaskDelay(pdMS_TO_TICKS(10)); }
                 anim_clear();
+                portENTER_CRITICAL(&led_state_mux);
                 led_state.preset = 0;
                 led_state.on = false;
+                portEXIT_CRITICAL(&led_state_mux);
                 break;
             }
             case 11: {
@@ -153,8 +209,10 @@ static void led_task(void *arg) {
                 vTaskDelay(pdMS_TO_TICKS(2000));
                 for(int i=255; i>=0; i-=5) { anim_solid(255, 200, 0, i); vTaskDelay(pdMS_TO_TICKS(20)); }
                 anim_clear();
+                portENTER_CRITICAL(&led_state_mux);
                 led_state.preset = 0;
                 led_state.on = false;
+                portEXIT_CRITICAL(&led_state_mux);
                 break;
             }
             default: anim_clear(); vTaskDelay(pdMS_TO_TICKS(50)); break;
@@ -180,8 +238,10 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         }
 
         wifi_connected = true;
+        portENTER_CRITICAL(&led_state_mux);
         led_state.on = true;
         led_state.preset = 10;
+        portEXIT_CRITICAL(&led_state_mux);
     }
 }
 
@@ -253,13 +313,151 @@ static esp_err_t audio_stream_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+#define LED_POST_MAX 512
+
+static esp_err_t led_send_state_json(httpd_req_t *req) {
+    bool on;
+    int preset;
+    uint8_t r, g, b, br;
+    portENTER_CRITICAL(&led_state_mux);
+    on = led_state.on;
+    preset = led_state.preset;
+    r = led_state.r;
+    g = led_state.g;
+    b = led_state.b;
+    br = led_state.brightness;
+    portEXIT_CRITICAL(&led_state_mux);
+    char out[200];
+    int n = snprintf(out, sizeof(out),
+        "{\"on\":%s,\"preset\":%d,\"r\":%u,\"g\":%u,\"b\":%u,\"brightness\":%u}",
+        on ? "true" : "false", preset, (unsigned)r, (unsigned)g, (unsigned)b, (unsigned)br);
+    if (n <= 0 || (size_t)n >= sizeof(out)) {
+        return httpd_resp_send_500(req);
+    }
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_type(req, "application/json");
+    return httpd_resp_send(req, out, (size_t)n);
+}
+
+static esp_err_t led_api_get_handler(httpd_req_t *req) {
+    return led_send_state_json(req);
+}
+
+static esp_err_t led_api_options_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_status(req, "204 No Content");
+    return httpd_resp_send(req, NULL, 0);
+}
+
+static esp_err_t led_api_post_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    int total = req->content_len;
+    if (total < 0 || total > LED_POST_MAX) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_send(req, "{\"error\":\"bad content length\"}", HTTPD_RESP_USE_STRLEN);
+    }
+    char body[LED_POST_MAX + 1];
+    memset(body, 0, sizeof(body));
+    int cur = 0;
+    while (cur < total) {
+        int r = httpd_req_recv(req, body + cur, (size_t)(total - cur));
+        if (r <= 0) {
+            httpd_resp_set_status(req, "400 Bad Request");
+            httpd_resp_set_type(req, "application/json");
+            return httpd_resp_send(req, "{\"error\":\"recv\"}", HTTPD_RESP_USE_STRLEN);
+        }
+        cur += r;
+    }
+    cJSON *root = cJSON_Parse(body);
+    if (!root) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        return httpd_resp_send(req, "{\"error\":\"invalid json\"}", HTTPD_RESP_USE_STRLEN);
+    }
+    portENTER_CRITICAL(&led_state_mux);
+    {
+        const cJSON *item = cJSON_GetObjectItemCaseSensitive(root, "on");
+        if (cJSON_IsBool(item)) {
+            led_state.on = cJSON_IsTrue(item);
+        }
+        item = cJSON_GetObjectItemCaseSensitive(root, "preset");
+        if (cJSON_IsNumber(item)) {
+            int p = (int)cJSON_GetNumberValue(item);
+            if (p < 0) {
+                p = 0;
+            }
+            if (p > 20) {
+                p = 20;
+            }
+            led_state.preset = p;
+        }
+        item = cJSON_GetObjectItemCaseSensitive(root, "r");
+        if (cJSON_IsNumber(item)) {
+            double v = cJSON_GetNumberValue(item);
+            if (v < 0) {
+                v = 0;
+            }
+            if (v > 255) {
+                v = 255;
+            }
+            led_state.r = (uint8_t)v;
+        }
+        item = cJSON_GetObjectItemCaseSensitive(root, "g");
+        if (cJSON_IsNumber(item)) {
+            double v = cJSON_GetNumberValue(item);
+            if (v < 0) {
+                v = 0;
+            }
+            if (v > 255) {
+                v = 255;
+            }
+            led_state.g = (uint8_t)v;
+        }
+        item = cJSON_GetObjectItemCaseSensitive(root, "b");
+        if (cJSON_IsNumber(item)) {
+            double v = cJSON_GetNumberValue(item);
+            if (v < 0) {
+                v = 0;
+            }
+            if (v > 255) {
+                v = 255;
+            }
+            led_state.b = (uint8_t)v;
+        }
+        item = cJSON_GetObjectItemCaseSensitive(root, "brightness");
+        if (cJSON_IsNumber(item)) {
+            double v = cJSON_GetNumberValue(item);
+            if (v < 0) {
+                v = 0;
+            }
+            if (v > 255) {
+                v = 255;
+            }
+            led_state.brightness = (uint8_t)v;
+        }
+    }
+    portEXIT_CRITICAL(&led_state_mux);
+    cJSON_Delete(root);
+    ESP_LOGI(TAG, "LED API POST applied");
+    return led_send_state_json(req);
+}
+
 static void start_webserver(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     httpd_handle_t server = NULL;
     if (httpd_start(&server, &config) == ESP_OK) {
-        httpd_uri_t audio = { .uri="/api/audio/stream", .method=HTTP_GET, .handler=audio_stream_handler };
+        httpd_uri_t audio = { .uri = "/api/audio/stream", .method = HTTP_GET, .handler = audio_stream_handler };
+        httpd_uri_t led_get = { .uri = "/api/led", .method = HTTP_GET, .handler = led_api_get_handler };
+        httpd_uri_t led_post = { .uri = "/api/led", .method = HTTP_POST, .handler = led_api_post_handler };
+        httpd_uri_t led_opts = { .uri = "/api/led", .method = HTTP_OPTIONS, .handler = led_api_options_handler };
         httpd_register_uri_handler(server, &audio);
-        ESP_LOGI(TAG, "HTTP server on port 80");
+        httpd_register_uri_handler(server, &led_get);
+        httpd_register_uri_handler(server, &led_post);
+        httpd_register_uri_handler(server, &led_opts);
+        ESP_LOGI(TAG, "HTTP server on port 80 (/api/audio/stream, /api/led)");
     }
 }
 
@@ -316,7 +514,14 @@ void app_main(void) {
         vTaskDelay(pdMS_TO_TICKS(100));
         
         ESP_LOGI(TAG, "Waiting for WiFi animation to finish...");
-        while (led_state.preset != 0) {
+        while (1) {
+            int pr;
+            portENTER_CRITICAL(&led_state_mux);
+            pr = led_state.preset;
+            portEXIT_CRITICAL(&led_state_mux);
+            if (pr == 0) {
+                break;
+            }
             vTaskDelay(pdMS_TO_TICKS(100));
         }
         
@@ -346,8 +551,10 @@ void app_main(void) {
             esp_err_t result = esp_get_feed_data(true, (int16_t *)raw_buf, (int)raw_bytes);
             if (stream_client_connected && !was_streaming) {
                 was_streaming = true;
+                portENTER_CRITICAL(&led_state_mux);
                 led_state.on = true;
                 led_state.preset = 11;
+                portEXIT_CRITICAL(&led_state_mux);
                 ESP_LOGI(TAG, "HTTP stream client connected — serial: AUDIO diag every 2s (mono |s16|; if s32 path, I32 L/R peaks)");
             } else if (!stream_client_connected && was_streaming) {
                 was_streaming = false;
@@ -435,9 +642,11 @@ void app_main(void) {
         }
     } else {
         ESP_LOGI(TAG, "WiFi failed - restart");
+        portENTER_CRITICAL(&led_state_mux);
         led_state.on = true;
         led_state.preset = 1;
         led_state.r = 255;
+        portEXIT_CRITICAL(&led_state_mux);
         vTaskDelay(pdMS_TO_TICKS(3000));
         esp_restart();
     }
