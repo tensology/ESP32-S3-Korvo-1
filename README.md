@@ -1,3 +1,5 @@
+<div align="center">
+
 # Korvo toolkit
 
 ![Korvo toolkit overview](readme/main.webp)
@@ -68,3 +70,5 @@ Korvo/
 - **Server APIs, audio relay, Whisper WebSocket, DB paths:** [`korvo-server/README.md`](korvo-server/README.md)
 
 Upstream hardware and speech stacks live in Espressif’s **[ESP-Skainet](https://github.com/espressif/esp-skainet)** and **[ESP-SR](https://github.com/espressif/esp-sr)** repos; this toolkit wires a concrete board + a local dev server around them.
+
+</div>
