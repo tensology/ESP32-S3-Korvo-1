@@ -13,6 +13,15 @@ This repository is a **development toolkit for the Espressif ESP32-Korvo v1.1** 
 
 Typical loop: edit firmware in `korvo-app`, use the dashboard to **flash** and watch **SSE logs**, use **Audio** / **ASR** tabs when you want to hear or transcribe the mic without extra wiring. The server talks to the board over your LAN (or `korvo.local` when mDNS behaves).
 
+## Where to buy the board
+
+The **ESP32-Korvo** dev kit (v1.1 class hardware this repo targets) shows up under Espressif’s **ESP32-KORVO** SKU at distributors and marketplaces, for example:
+
+- [DigiKey (UK) — ESP32-KORVO](https://www.digikey.co.uk/en/products/detail/espressif-systems/ESP32-KORVO/12138980)
+- [AliExpress listing](https://www.aliexpress.com/i/1005003980436945.html)
+
+Stock and exact revision vary by seller; confirm you are getting the **ESP32** (not ESP32-S3) Korvo kit if you want to match this firmware’s `esp32` target.
+
 ## Quick start (server)
 
 From the repo root:

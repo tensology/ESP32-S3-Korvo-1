@@ -104,6 +104,8 @@ Rough feature set of **ESP32-Korvo v1.1** (not exhaustive):
 - ES7210 ADC, ES8311 codec, speaker and headphone paths, onboard amplifier.
 - Boot, reset, and function buttons; UART/USB for flashing; SD slot on the PCB.
 
+Where to buy (ESP32-KORVO kit; confirm revision with the seller): [DigiKey UK](https://www.digikey.co.uk/en/products/detail/espressif-systems/ESP32-KORVO/12138980), [AliExpress](https://www.aliexpress.com/i/1005003980436945.html).
+
 Official docs and PDFs:
 
 - [ESP32-Korvo v1.1 user guide (ESP-Skainet docs)](https://github.com/espressif/esp-skainet/blob/master/docs/en/hw-reference/esp32/user-guide-esp32-korvo-v1.1.md)
