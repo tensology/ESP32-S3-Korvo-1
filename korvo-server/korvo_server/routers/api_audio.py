@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from korvo_server.audio_hub import audio_hub
 from korvo_server.config import RECORDINGS_DIR
 
 router = APIRouter(tags=["audio"])
@@ -321,31 +322,9 @@ async def relay_board_audio(
     client_host = request.client.host if request.client else ""
 
     async def stream():
-        timeout = httpx.Timeout(connect=20.0, read=None, write=20.0, pool=None)
-        limits = httpx.Limits(max_keepalive_connections=0, max_connections=10)
-        headers = {
-            "Connection": "close",
-            "Accept": "*/*",
-            "User-Agent": "korvo-server/relay",
-        }
-        try:
-            async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=True) as client:
-                try:
-                    async with client.stream("GET", url, headers=headers) as resp:
-                        if resp.status_code != 200:
-                            detail = (await resp.aread())[:1200].decode(errors="replace")
-                            log.warning("relay upstream HTTP %s: %s", resp.status_code, detail[:200])
-                            return
-                        try:
-                            async for chunk in resp.aiter_bytes(16384):
-                                if chunk:
-                                    yield chunk
-                        except httpx.HTTPError as e:
-                            log.warning("relay stream read ended: %s", e)
-                except httpx.HTTPError as e:
-                    log.warning("relay open stream failed: %s", e)
-        except httpx.HTTPError as e:
-            log.warning("relay client error: %s", e)
+        async for chunk in audio_hub.subscribe(url):
+            if chunk:
+                yield chunk
 
     return StreamingResponse(
         stream(),

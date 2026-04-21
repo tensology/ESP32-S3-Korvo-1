@@ -64,8 +64,7 @@ Korvo/
 ├── start.sh                  # → korvo-server (dashboard on :3333)
 ├── korvo-app/                # ESP-IDF project (Korvo v1.1)
 ├── korvo-server/             # FastAPI dashboard + APIs
-├── scripts/                  # Optional CLI helpers (listen, record, etc.)
-└── korvo-config-server/      # Legacy Node config server (superseded by korvo-server)
+└── scripts/                  # Optional CLI helpers (listen, record, etc.)
 ```
 
 ## Documentation map
