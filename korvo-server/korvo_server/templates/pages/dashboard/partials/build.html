@@ -1,0 +1,40 @@
+<div class="tab-panel" role="tabpanel" id="tab-build" aria-labelledby="tabbtn-build">
+    <!-- Build & Flash -->
+    <div class="card">
+      <h2>
+        <span class="icon">🔨</span> Build & Flash
+        <span class="badge" id="flashBadge" style="display:none"></span>
+      </h2>
+      <div class="row">
+        <div class="field">
+          <label>Serial port (flash only — <code>idf.py build</code> does not use this). If you have two USB-UART cables, pick the one on the Korvo you are watching; the list prefers <code>usbserial</code> over <code>SLAB</code>.</label>
+          <select id="serialPort"></select>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn-secondary" onclick="loadPorts()">Refresh Ports</button>
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:0.75rem">
+        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-weight:normal">
+          <input type="checkbox" id="flashCleanBefore" style="width:auto">
+          Ninja clean before build (full recompile — use when the UI builds instantly but you expect a long compile)
+        </label>
+      </div>
+      <div class="btn-row">
+        <button class="btn-primary" onclick="buildAndFlash()" id="flashBtn">🔨 Build & Flash to Board</button>
+      </div>
+      <p style="font-size:0.75rem;opacity:0.7;margin:0.4rem 0 0.8rem;line-height:1.35;">Runs on this Mac (same as terminal). If this hangs or shows nothing, open <a href="/api/flash/diag" target="_blank" rel="noopener">/api/flash/diag</a> — <code>idf_py</code> must be non-empty.</p>
+
+      <!-- Live Terminal -->
+      <div class="terminal" id="terminal">
+        <div class="terminal-bar">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+          <span id="terminalTitle">korvo — build & flash</span>
+        </div>
+        <div class="terminal-output" id="terminalOutput"></div>
+      </div>
+    </div>
+    </div>

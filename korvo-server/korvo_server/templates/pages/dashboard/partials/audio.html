@@ -1,0 +1,20 @@
+<div class="tab-panel" role="tabpanel" id="tab-audio" aria-labelledby="tabbtn-audio">
+    <!-- Audio Streaming -->
+    <div class="card" id="audioCard">
+      <h2>
+        <span class="icon">🎵</span> Audio Streaming
+        <span class="badge disconnected" id="audioBadge">Not connected</span>
+      </h2>
+      <div class="field">
+        <label>Korvo host (<code>korvo.local</code> works on macOS / same LAN when mDNS is on; use a numeric IP if your browser cannot resolve <code>.local</code>)</label>
+        <input type="text" id="boardIp" value="" placeholder="korvo.local or 192.168.1.27" style="margin-bottom: 1rem;">
+      </div>
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;margin-bottom:0.75rem;cursor:pointer;">
+        <input type="checkbox" id="audioUseRelay" checked style="width:auto;">
+        Play via this server (same-origin relay — usually much less buffering than hitting the board URL directly)
+      </label>
+      <button class="btn-primary" id="audioBtn" onclick="toggleAudioStream()" style="width:100%;padding:0.8rem;">▶️ Start live mic (16 kHz mono)</button>
+      <p id="audioStreamStatus" style="font-size:0.8rem;margin-top:0.75rem;padding:0.5rem 0.65rem;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:8px;line-height:1.4;min-height:2.5rem;">Idle — uses Web Audio (same WAV → s16le @ 16 kHz as <code>listen.sh</code> / relay). HTML5 <code>&lt;audio&gt;</code> cannot play this infinite chunked stream reliably.</p>
+      <p style="font-size:0.75rem;opacity:0.75;margin-top:0.5rem;line-height:1.4;">Default URL: same-origin <code>/api/audio/relay?url=</code> + encoded <code>http://&lt;board&gt;/api/audio/stream</code>. Uncheck relay only if your browser can reach the board IP directly.</p>
+    </div>
+    </div>

@@ -3,7 +3,10 @@ import logging
 import re
 import shutil
 import struct
+import threading
+import uuid
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -16,6 +19,20 @@ from korvo_server.config import RECORDINGS_DIR
 
 router = APIRouter(tags=["audio"])
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class LiveRecordingSession:
+    session_id: str
+    wav_path: Path
+    mp3_path: Path
+    task: asyncio.Task
+    stop_event: asyncio.Event
+    started_at: datetime
+
+
+_live_recording_lock = threading.Lock()
+_live_recording: LiveRecordingSession | None = None
 
 
 def _allowed_upstream(url: str) -> bool:
@@ -140,11 +157,158 @@ async def _record_board_stream(
     return total
 
 
+async def _record_board_stream_until_stop(
+    board_url: str,
+    out_path: Path,
+    stop_event: asyncio.Event,
+) -> int:
+    """Pull board WAV stream to disk until stop_event is set."""
+    timeout = httpx.Timeout(connect=25.0, read=None, write=25.0, pool=None)
+    limits = httpx.Limits(max_keepalive_connections=0, max_connections=10)
+    headers = {"Connection": "close", "Accept": "*/*", "User-Agent": "korvo-server/live-record"}
+
+    total = 0
+    async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=True) as client:
+        async with client.stream("GET", board_url, headers=headers) as resp:
+            if resp.status_code != 200:
+                detail = (await resp.aread())[:1200].decode(errors="replace")
+                raise HTTPException(resp.status_code, f"Board stream failed: {detail}")
+            with out_path.open("wb") as out:
+                async for chunk in resp.aiter_bytes(32768):
+                    if stop_event.is_set():
+                        break
+                    if not chunk:
+                        continue
+                    out.write(chunk)
+                    total += len(chunk)
+
+    if total >= 44:
+        _finalize_wav_header(out_path)
+    elif out_path.exists():
+        try:
+            out_path.unlink()
+        except OSError:
+            pass
+    return total
+
+
+async def _convert_wav_to_mp3(wav_path: Path, mp3_path: Path) -> bool:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return False
+    proc = await asyncio.create_subprocess_exec(
+        ffmpeg,
+        "-y",
+        "-loglevel",
+        "error",
+        "-i",
+        str(wav_path),
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        "128k",
+        str(mp3_path),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    rc = await proc.wait()
+    return rc == 0 and mp3_path.exists() and mp3_path.stat().st_size > 0
+
+
+def _safe_stem(name: str | None) -> str | None:
+    if not name or not name.strip():
+        return None
+    stem = Path(name.strip()).stem
+    if not re.match(r"^[a-zA-Z0-9._-]+$", stem) or ".." in stem:
+        return None
+    return stem
+
+
 class RecordBody(BaseModel):
     board_url: str = Field(..., description="e.g. http://192.168.1.27/api/audio/stream")
     duration_sec: float = Field(30.0, ge=0.5, le=600.0)
     play_ffplay: bool = Field(False, description="If true, also play through ffplay (same TCP stream as file).")
     filename: str | None = Field(None, description="Optional .wav basename (letters, digits, ._- only).")
+
+
+class LiveRecordStartBody(BaseModel):
+    board_url: str = Field(..., description="e.g. http://192.168.1.27/api/audio/stream")
+    filename_stem: str | None = Field(None, description="Optional output stem (letters, digits, ._- only).")
+
+
+@router.post("/api/audio/record/live/start")
+async def record_live_start(body: LiveRecordStartBody):
+    """Start a long-running recording session; stop via /api/audio/record/live/stop."""
+    global _live_recording
+    if not _allowed_upstream(body.board_url):
+        raise HTTPException(400, "board_url host not allowed.")
+    with _live_recording_lock:
+        if _live_recording is not None:
+            raise HTTPException(409, "A live recording session is already running.")
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stem = _safe_stem(body.filename_stem) or f"korvo_live_{stamp}"
+    wav_path = RECORDINGS_DIR / f"{stem}.wav"
+    mp3_path = RECORDINGS_DIR / f"{stem}.mp3"
+    stop_event = asyncio.Event()
+    task = asyncio.create_task(_record_board_stream_until_stop(body.board_url, wav_path, stop_event))
+    session = LiveRecordingSession(
+        session_id=str(uuid.uuid4()),
+        wav_path=wav_path,
+        mp3_path=mp3_path,
+        task=task,
+        stop_event=stop_event,
+        started_at=datetime.now(timezone.utc),
+    )
+    with _live_recording_lock:
+        _live_recording = session
+    return {
+        "ok": True,
+        "session_id": session.session_id,
+        "started_at": session.started_at.isoformat(),
+        "wav_filename": session.wav_path.name,
+    }
+
+
+@router.post("/api/audio/record/live/stop")
+async def record_live_stop(request: Request):
+    """Stop current recording session, finalize WAV, and try to export MP3."""
+    global _live_recording
+    with _live_recording_lock:
+        session = _live_recording
+        _live_recording = None
+    if session is None:
+        raise HTTPException(404, "No active live recording session.")
+
+    session.stop_event.set()
+    try:
+        bytes_written = await asyncio.wait_for(session.task, timeout=20.0)
+    except TimeoutError:
+        session.task.cancel()
+        raise HTTPException(500, "Recording stop timed out.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Recording failed: {e}") from e
+
+    mp3_ok = False
+    if session.wav_path.exists() and session.wav_path.stat().st_size > 44:
+        mp3_ok = await _convert_wav_to_mp3(session.wav_path, session.mp3_path)
+
+    base = str(request.base_url).rstrip("/")
+    out = {
+        "ok": True,
+        "session_id": session.session_id,
+        "bytes_written": bytes_written,
+        "wav_filename": session.wav_path.name if session.wav_path.exists() else None,
+        "wav_url": f"{base}/recordings/{session.wav_path.name}" if session.wav_path.exists() else None,
+        "mp3_filename": session.mp3_path.name if mp3_ok else None,
+        "mp3_url": f"{base}/recordings/{session.mp3_path.name}" if mp3_ok else None,
+        "mp3_available": mp3_ok,
+    }
+    if not mp3_ok:
+        out["message"] = "ffmpeg not found or MP3 conversion failed; WAV is available."
+    return out
 
 
 @router.get("/api/audio/relay")

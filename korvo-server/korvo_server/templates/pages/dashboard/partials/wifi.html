@@ -1,0 +1,35 @@
+<div class="tab-panel active" role="tabpanel" id="tab-wifi" aria-labelledby="tabbtn-wifi">
+    <!-- WiFi Setup -->
+    <div class="card">
+      <h2>
+        <span class="icon">📶</span> WiFi Network
+        <span class="badge disconnected" id="wifiBadge">Not configured</span>
+      </h2>
+      <div class="row">
+        <div class="field" style="flex:2">
+          <label>SSID</label>
+          <input type="text" id="ssid" list="ssidList" placeholder="Select from saved or type manually">
+          <datalist id="ssidList"></datalist>
+        </div>
+        <div class="field" style="flex:1">
+          <label>&nbsp;</label>
+          <button class="btn-secondary" onclick="scanNetworks()" id="scanBtn">Scan</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="password" placeholder="WiFi password">
+      </div>
+      <div class="btn-row">
+        <button class="btn-primary" onclick="saveWifi()">Save & Set Active</button>
+      </div>
+      <div id="scanResults" style="display:none; margin-top: 1rem;">
+        <label>Available Networks</label>
+        <ul class="network-list" id="networkList"></ul>
+      </div>
+      <div class="saved-networks" id="savedNetworks" style="display:none">
+        <label style="margin-top:1rem">Saved Networks</label>
+        <div id="savedList"></div>
+      </div>
+    </div>
+    </div>

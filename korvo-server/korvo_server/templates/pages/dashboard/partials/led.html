@@ -1,0 +1,64 @@
+<div class="tab-panel" role="tabpanel" id="tab-led" aria-labelledby="tabbtn-led">
+    <!-- LED Control -->
+    <div class="card" id="ledCard">
+      <h2>
+        <span class="icon">💡</span> LED Control
+        <span class="badge disconnected" id="ledBadge">Board offline</span>
+      </h2>
+
+      <div style="display:flex;gap:1.5rem;align-items:start;flex-wrap:wrap;margin-bottom:1rem">
+        <!-- Color picker -->
+        <div>
+          <label>Color</label>
+          <input type="color" id="ledColor" value="#0096ff" style="width:60px;height:40px;padding:2px;border-radius:8px;cursor:pointer">
+        </div>
+        <!-- Brightness -->
+        <div style="flex:1;min-width:150px">
+          <label>Brightness <span id="brightnessVal">180</span></label>
+          <input type="range" id="ledBrightness" min="0" max="255" value="180" style="width:100%;padding:0;background:transparent">
+        </div>
+        <!-- Power -->
+        <div>
+          <label>&nbsp;</label>
+          <button class="btn-secondary" id="ledPowerBtn" onclick="toggleLed()" style="min-width:60px">OFF</button>
+        </div>
+      </div>
+
+      <label>Presets</label>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem">
+        <button type="button" class="btn-secondary" onclick="ledPreset(0)" style="flex:1;min-width:50px">⏻ Off</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(1)" style="flex:1;min-width:50px">● ON</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(2)" style="flex:1;min-width:50px">↻ Spinner</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(3)" style="flex:1;min-width:50px">🌈 Rainbow</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(4)" style="flex:1;min-width:50px">💨 Breathe</button>
+        <button type="button" class="btn-secondary" onclick="ledPreset(5)" style="flex:1;min-width:50px">⚡ Chase</button>
+      </div>
+
+      <label style="margin-top:0.25rem">Solid colors (tap again to turn off)</label>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.85rem">
+        <button type="button" class="btn-secondary led-named" id="ledTogRed" onclick="ledNamedToggle(255,0,0)" style="background:#3e2723;color:#ff5722">Red</button>
+        <button type="button" class="btn-secondary led-named" id="ledTogGreen" onclick="ledNamedToggle(0,255,0)" style="background:#1a472a;color:#4caf50">Green</button>
+        <button type="button" class="btn-secondary led-named" id="ledTogBlue" onclick="ledNamedToggle(0,100,255)" style="background:#1a237e;color:#64b5f6">Blue</button>
+        <button type="button" class="btn-secondary led-named" id="ledTogOrange" onclick="ledNamedToggle(255,150,0)" style="background:#4a2f00;color:#ff9800">Orange</button>
+        <button type="button" class="btn-secondary led-named" id="ledTogYellow" onclick="ledNamedToggle(255,220,0)" style="background:#4a3d00;color:#ffeb3b">Yellow</button>
+      </div>
+
+      <p style="font-size:0.72rem;opacity:0.78;line-height:1.45;margin:0 0 0.5rem;">The ring is <strong>12 WS2812 pixels</strong> on one data line — you can set each index independently (firmware <code>preset</code>&nbsp;6). Flash the app after this server update so the board speaks the same API.</p>
+      <label>Strip preview (syncs from board when online)</label>
+      <div id="ledStripPreview" style="display:flex;gap:4px;flex-wrap:wrap;margin:0.35rem 0 0.75rem;"></div>
+      <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+        <div class="field" style="flex:0 0 9rem;min-width:7rem">
+          <label>LED index</label>
+          <select id="ledPixIndex"></select>
+        </div>
+        <div class="field" style="flex:1;min-width:10rem">
+          <label>&nbsp;</label>
+          <button type="button" class="btn-secondary" onclick="ledApplyPickerToIndex()">Set from color picker</button>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:0.35rem;flex-wrap:wrap">
+        <button type="button" class="btn-secondary" onclick="ledTurnIndexOff()">Turn this LED off</button>
+        <button type="button" class="btn-secondary" onclick="ledPushFullStrip()">Apply full strip</button>
+      </div>
+    </div>
+    </div>

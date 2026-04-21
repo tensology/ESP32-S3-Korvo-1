@@ -1,0 +1,35 @@
+<div class="tab-panel" role="tabpanel" id="tab-settings" aria-labelledby="tabbtn-settings">
+    <!-- Settings -->
+    <div class="card">
+      <h2><span class="icon">⚙️</span> Agent Settings</h2>
+      <div class="settings-grid">
+        <div class="field">
+          <label>Wake Word</label>
+          <input type="text" id="wakeWord" value="hilexin" placeholder="e.g. hilexin, hiesp">
+        </div>
+        <div class="field">
+          <label>Server Port (on ESP32)</label>
+          <input type="text" id="serverPort" value="80" placeholder="80">
+        </div>
+        <div class="field full">
+          <label>ESP32 IP Address (for LED control)</label>
+          <input type="text" id="espIpInput" value="korvo.local" placeholder="korvo.local or 192.168.x.x">
+        </div>
+        <div class="field full">
+          <label>Agent Endpoint (after WiFi connect)</label>
+          <input type="text" id="agentEndpoint" placeholder="http://192.168.x.x:3000/agent">
+        </div>
+        <div class="field">
+          <label>LED Brightness (0-255)</label>
+          <input type="text" id="settingsLedBrightness" value="128" placeholder="128">
+        </div>
+        <div class="field">
+          <label>Volume (0-100)</label>
+          <input type="text" id="volume" value="70" placeholder="70">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-secondary" onclick="saveSettings()">Save Settings</button>
+      </div>
+    </div>
+    </div>
