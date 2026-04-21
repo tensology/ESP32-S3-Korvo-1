@@ -52,6 +52,7 @@
 
     header {
       display: flex; align-items: center; gap: 1rem;
+      justify-content: center;
       margin-bottom: 2.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid #222;
     }
     header .logo {

@@ -169,6 +169,28 @@
         const elevenlabsEl = document.getElementById('thirdPartyElevenLabsApiKey');
         if (elevenlabsEl) elevenlabsEl.value = data.elevenlabs_api_key;
       }
+      if (typeof data.aws_access_key_id === 'string') {
+        const el = document.getElementById('thirdPartyAwsAccessKeyId');
+        if (el) el.value = data.aws_access_key_id;
+      }
+      if (typeof data.aws_secret_access_key === 'string') {
+        const el = document.getElementById('thirdPartyAwsSecretAccessKey');
+        if (el) el.value = data.aws_secret_access_key;
+      }
+      if (typeof data.aws_region === 'string') {
+        const el = document.getElementById('thirdPartyAwsRegion');
+        if (el) el.value = data.aws_region;
+      }
+      if (typeof data.aws_session_token === 'string') {
+        const el = document.getElementById('thirdPartyAwsSessionToken');
+        if (el) el.value = data.aws_session_token;
+      }
+      const awsStatusEl = document.getElementById('thirdPartyAwsPollyStatus');
+      if (awsStatusEl && typeof data.aws_polly_enabled === 'string') {
+        const on = data.aws_polly_enabled === '1';
+        awsStatusEl.textContent = on ? 'Enabled' : 'Disabled';
+        awsStatusEl.style.color = on ? '#4caf50' : '#ff9800';
+      }
       let host = (data.esp_ip || '').trim();
       if (!host) host = (localStorage.getItem('korvo_esp_ip') || '').trim();
       if (!host) host = (document.getElementById('espIpInput').value || 'korvo.local').trim();

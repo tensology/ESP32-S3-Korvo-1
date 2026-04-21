@@ -54,6 +54,21 @@ bash "$(dirname "$0")/setup.sh"
 # shellcheck source=/dev/null
 source korvo/bin/activate
 
+# Ensure Kokoro assets are present at startup (not just install time).
+KOKORO_DIR="$(dirname "$0")/downloads/kokoro"
+KOKORO_MODEL="$KOKORO_DIR/kokoro-v1.0.onnx"
+KOKORO_VOICES="$KOKORO_DIR/voices-v1.0.bin"
+if [[ ! -s "$KOKORO_MODEL" || ! -s "$KOKORO_VOICES" ]]; then
+  echo "[korvo] Kokoro assets missing, fetching before server start..."
+  if [[ -x "$(dirname "$0")/bin/download-kokoro.sh" ]]; then
+    bash "$(dirname "$0")/bin/download-kokoro.sh"
+  fi
+fi
+
+if [[ ! -s "$KOKORO_MODEL" || ! -s "$KOKORO_VOICES" ]]; then
+  echo "[korvo] Warning: Kokoro assets are still missing; Speak Target may fail." >&2
+fi
+
 # Clear port immediately before bind (avoids uvicorn ERROR: address already in use).
 prepare_port "$PORT"
 

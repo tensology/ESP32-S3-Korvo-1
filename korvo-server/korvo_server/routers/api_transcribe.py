@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import struct
 import time
+from collections import deque
 from urllib.parse import unquote
 
 import httpx
@@ -16,12 +19,45 @@ from korvo_server.korvo_pcm import WavStreamToPcm16
 from korvo_server.routers.api_audio import _allowed_upstream
 from korvo_server import whisper_stt
 from korvo_server.transcript_dedupe import sliding_window_text_delta
+from korvo_server.tts_echo_guard import is_suppressed
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["audio"])
 
 _PCM_RATE = 16000
 _BYTES_MONO_S16_1S = _PCM_RATE * 2
+_SENTENCE_END_RE = re.compile(r"[.!?。！？]\s*$")
+
+
+def _rms_pcm16le(buf: bytes) -> float:
+    if not buf:
+        return 0.0
+    n = len(buf) // 2
+    if n <= 0:
+        return 0.0
+    try:
+        samples = struct.unpack("<" + "h" * n, buf[: n * 2])
+    except Exception:
+        return 0.0
+    acc = 0.0
+    for s in samples:
+        v = float(s) / 32768.0
+        acc += v * v
+    return (acc / float(n)) ** 0.5
+
+
+def _norm_sentence(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", (text or "").lower())).strip()
+
+
+def _token_jaccard(a: str, b: str) -> float:
+    sa = set(_norm_sentence(a).split())
+    sb = set(_norm_sentence(b).split())
+    if not sa or not sb:
+        return 0.0
+    inter = len(sa.intersection(sb))
+    union = len(sa) + len(sb) - inter
+    return float(inter) / float(union) if union else 0.0
 
 # One inference at a time across all connections (whisper.cpp model is not proven thread-safe).
 _ws_whisper_lock: asyncio.Lock | None = None
@@ -103,6 +139,23 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
     max_buf_bytes = int(_PCM_RATE * 2 * 90)
     last_run = 0.0
     last_window_transcript = ""
+    sentence_buf = ""
+    sentence_seq = 0
+    # Activity-based endpointing (simple RMS VAD):
+    # - mark "speech active" only after consecutive voiced chunks
+    # - emit sentence only after sustained silence while speech was active
+    speech_active = False
+    voiced_streak = 0
+    silence_streak = 0
+    vad_voiced_rms = 0.012
+    vad_voiced_chunks = 2
+    vad_silence_chunks = 5
+    # "Serious silence" gate to clear stale UI sentence on the frontend (server is source of truth).
+    silence_clear_chunks = max(3, int(round(5.0 / step_sec)))
+    # Hard utterance reset on prolonged silence to prevent stale sentence appends.
+    hard_reset_chunks = max(3, int(round(4.0 / step_sec)))
+    silence_clear_emitted = False
+    recent_sentences = deque(maxlen=8)
 
     def _connected() -> bool:
         return websocket.client_state == WebSocketState.CONNECTED
@@ -111,6 +164,10 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
         async for chunk in audio_hub.subscribe(board_url):
             if not _connected():
                 break
+            if is_suppressed(board_url):
+                # During local TTS playback/cooldown, skip ASR windows to prevent echo feedback loops.
+                last_window_transcript = ""
+                continue
             pcm = parser.feed(chunk)
             if pcm:
                 pcm_buf.extend(pcm)
@@ -123,6 +180,19 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
                 continue
             last_run = now
             win = bytes(pcm_buf[-window_bytes:]) if len(pcm_buf) >= window_bytes else bytes(pcm_buf)
+            # Tail-only RMS for VAD (reduces stale voiced energy from older window content).
+            tail_bytes = int(_PCM_RATE * 2 * min(0.8, step_sec))
+            tail = bytes(pcm_buf[-tail_bytes:]) if len(pcm_buf) >= tail_bytes else bytes(pcm_buf)
+            rms = _rms_pcm16le(tail)
+            if rms >= vad_voiced_rms:
+                voiced_streak += 1
+                silence_streak = 0
+                silence_clear_emitted = False
+            else:
+                silence_streak += 1
+                voiced_streak = 0
+            if not speech_active and voiced_streak >= vad_voiced_chunks:
+                speech_active = True
             async with _ws_whisper_lock:
                 try:
                     text = await asyncio.to_thread(whisper_stt.transcribe_pcm16_mono_s16le, win, model_id)
@@ -135,6 +205,80 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
                 break
             delta = sliding_window_text_delta(last_window_transcript, text)
             last_window_transcript = text
+            delta_norm = " ".join((delta or "").split()).strip()
+            if delta_norm:
+                sentence_buf = f"{sentence_buf} {delta_norm}".strip() if sentence_buf else delta_norm
+                silence_clear_emitted = False
+                if _SENTENCE_END_RE.search(delta_norm):
+                    sentence = sentence_buf.strip()
+                    sentence_buf = ""
+                    speech_active = False
+                    silence_streak = 0
+                    if sentence:
+                        # Backend-side near-duplicate suppression.
+                        duplicate = any(_token_jaccard(sentence, prev) >= 0.92 for prev in recent_sentences)
+                        if not duplicate:
+                            recent_sentences.append(sentence)
+                            sentence_seq += 1
+                            await websocket.send_json({
+                                "type": "sentence",
+                                "sentence_id": sentence_seq,
+                                "text": sentence,
+                                "reason": "punctuation",
+                                "t_unix": time.time(),
+                            })
+            elif sentence_buf and speech_active and silence_streak >= vad_silence_chunks:
+                sentence = sentence_buf.strip()
+                sentence_buf = ""
+                speech_active = False
+                silence_streak = 0
+                if sentence:
+                    duplicate = any(_token_jaccard(sentence, prev) >= 0.92 for prev in recent_sentences)
+                    if not duplicate:
+                        recent_sentences.append(sentence)
+                        sentence_seq += 1
+                        await websocket.send_json({
+                            "type": "sentence",
+                            "sentence_id": sentence_seq,
+                            "text": sentence,
+                            "reason": "vad_silence",
+                            "t_unix": time.time(),
+                        })
+            elif sentence_buf and silence_streak >= hard_reset_chunks:
+                # Long silence with unresolved buffer: finalize if meaningful, else hard reset.
+                sentence = sentence_buf.strip()
+                sentence_buf = ""
+                last_window_transcript = ""
+                speech_active = False
+                voiced_streak = 0
+                silence_streak = 0
+                if sentence and len(sentence) >= 8:
+                    duplicate = any(_token_jaccard(sentence, prev) >= 0.92 for prev in recent_sentences)
+                    if not duplicate:
+                        recent_sentences.append(sentence)
+                        sentence_seq += 1
+                        await websocket.send_json({
+                            "type": "sentence",
+                            "sentence_id": sentence_seq,
+                            "text": sentence,
+                            "reason": "hard_reset_finalize",
+                            "t_unix": time.time(),
+                        })
+                if not silence_clear_emitted:
+                    silence_clear_emitted = True
+                    await websocket.send_json({
+                        "type": "silence_clear",
+                        "reason": "hard_reset",
+                        "t_unix": time.time(),
+                    })
+            elif not sentence_buf and not speech_active and silence_streak >= silence_clear_chunks and not silence_clear_emitted:
+                silence_clear_emitted = True
+                await websocket.send_json({
+                    "type": "silence_clear",
+                    "reason": "long_silence",
+                    "silence_chunks": silence_streak,
+                    "t_unix": time.time(),
+                })
             await websocket.send_json({
                 "type": "partial",
                 "text": text,

@@ -10,7 +10,7 @@ PIP="korvo/bin/pip"
 need_core=0
 if [[ ! -x "$PY" ]]; then
   need_core=1
-elif ! "$PY" -c "import fastapi, numpy" 2>/dev/null; then
+elif ! "$PY" -c "import fastapi, numpy, boto3" 2>/dev/null; then
   need_core=1
 fi
 
@@ -28,5 +28,19 @@ if ! "$PY" -c "import pywhispercpp" 2>/dev/null; then
   if ! "$PIP" install -r requirements-whisper.txt; then
     echo "[korvo] Warning: pywhispercpp install failed (needs CMake + C++ toolchain on some systems)." >&2
     echo "[korvo] Server can still start; fix with: korvo/bin/pip install -r requirements-whisper.txt" >&2
+  fi
+fi
+
+if ! "$PY" -c "import kokoro_onnx, misaki, fugashi, unidic_lite, jaconv" 2>/dev/null; then
+  echo "Installing Kokoro TTS (requirements-kokoro.txt) ..."
+  if ! "$PIP" install -r requirements-kokoro.txt; then
+    echo "[korvo] Warning: kokoro_onnx install failed." >&2
+    echo "[korvo] TTS can be enabled later with: korvo/bin/pip install -r requirements-kokoro.txt" >&2
+  fi
+fi
+
+if [[ -x "bin/download-kokoro.sh" ]]; then
+  if ! bash "bin/download-kokoro.sh"; then
+    echo "[korvo] Warning: failed to download Kokoro assets. Retry: bash korvo-server/bin/download-kokoro.sh" >&2
   fi
 fi

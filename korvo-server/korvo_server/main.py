@@ -4,11 +4,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from korvo_server.config import DB_PATH, PORT, RECORDINGS_DIR, SERVER_ROOT
+from korvo_server.config import DB_PATH, LOGS_DIR, PORT, RECORDINGS_DIR, SERVER_ROOT
 from korvo_server.config_gen import generate_config, has_active_wifi
 from korvo_server.db import KorvoDB
 from korvo_server.flash_env import get_flash_spawn_env
-from korvo_server.routers import api_agent, api_audio, api_flash, api_networks, api_pages, api_ports, api_settings, api_transcribe, api_translation, api_wifi
+from korvo_server.routers import api_agent, api_audio, api_flash, api_networks, api_pages, api_ports, api_settings, api_transcribe, api_translation, api_tts, api_vendors, api_wifi
 
 
 @asynccontextmanager
@@ -47,6 +47,7 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 (RECORDINGS_DIR / ".gitkeep").touch(exist_ok=True)
 app.mount("/recordings", StaticFiles(directory=str(RECORDINGS_DIR)), name="recordings")
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 for r in (
     api_pages.router,
@@ -56,7 +57,9 @@ for r in (
     api_ports.router,
     api_flash.router,
     api_agent.router,
+    api_vendors.router,
     api_translation.router,
+    api_tts.router,
     api_audio.router,
     api_transcribe.router,
 ):

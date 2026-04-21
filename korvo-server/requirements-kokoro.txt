@@ -1,0 +1,6 @@
+# Optional: local Kokoro TTS (for Speak Target in Translation tab).
+kokoro-onnx
+misaki[ja,zh]
+fugashi
+unidic-lite
+jaconv

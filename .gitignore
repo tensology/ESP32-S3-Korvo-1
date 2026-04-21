@@ -20,6 +20,15 @@ korvo-server/korvo/
 korvo-server/__pycache__/
 korvo-server/**/__pycache__/
 korvo-server/recordings/*.wav
+korvo-server/recordings/*.mp3
+korvo-server/recordings/*.tmp
+korvo-server/downloads/
+korvo-server/.pytest_cache/
+korvo-server/.mypy_cache/
+korvo-server/.ruff_cache/
+korvo-server/.cache/
+korvo-server/logs/
 scripts/stream-captures/*.wav
+sample/.cache/
 __pycache__/
 *.py[cod]

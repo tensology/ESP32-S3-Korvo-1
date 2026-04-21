@@ -6,29 +6,78 @@
     <div class="row" style="margin-bottom:0.65rem;">
       <div class="field">
         <label style="font-size:0.8rem;">AssemblyAI API Key</label>
-        <input type="password" id="thirdPartyAssemblyAiApiKey" placeholder="AssemblyAI key">
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="password" id="thirdPartyAssemblyAiApiKey" placeholder="AssemblyAI key">
+          <button class="btn-secondary" onclick="validateVendorKey('assemblyai')">Validate</button>
+        </div>
       </div>
       <div class="field">
         <label style="font-size:0.8rem;">OpenAI API Key</label>
-        <input type="password" id="thirdPartyOpenAiApiKey" placeholder="OpenAI key">
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="password" id="thirdPartyOpenAiApiKey" placeholder="OpenAI key">
+          <button class="btn-secondary" onclick="validateVendorKey('openai')">Validate</button>
+        </div>
       </div>
     </div>
 
     <div class="row" style="margin-bottom:0.65rem;">
       <div class="field">
         <label style="font-size:0.8rem;">Anthropic / Claude Code API Key</label>
-        <input type="password" id="thirdPartyAnthropicApiKey" placeholder="Anthropic key">
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="password" id="thirdPartyAnthropicApiKey" placeholder="Anthropic key">
+          <button class="btn-secondary" onclick="validateVendorKey('anthropic')">Validate</button>
+        </div>
       </div>
       <div class="field">
         <label style="font-size:0.8rem;">Google Gemini API Key</label>
-        <input type="password" id="thirdPartyGoogleGeminiApiKey" placeholder="Gemini key">
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="password" id="thirdPartyGoogleGeminiApiKey" placeholder="Gemini key">
+          <button class="btn-secondary" onclick="validateVendorKey('gemini')">Validate</button>
+        </div>
       </div>
     </div>
 
     <div class="row" style="margin-bottom:0.65rem;">
       <div class="field">
         <label style="font-size:0.8rem;">ElevenLabs API Key</label>
-        <input type="password" id="thirdPartyElevenLabsApiKey" placeholder="ElevenLabs key">
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="password" id="thirdPartyElevenLabsApiKey" placeholder="ElevenLabs key">
+          <button class="btn-secondary" onclick="validateVendorKey('elevenlabs')">Validate</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin:0.75rem 0 1rem;padding:1rem;">
+      <h3 style="font-size:0.95rem;margin:0 0 0.6rem;">AWS Polly</h3>
+      <div class="row" style="margin-bottom:0.65rem;">
+        <div class="field">
+          <label style="font-size:0.8rem;">AWS Access Key ID</label>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <input type="password" id="thirdPartyAwsAccessKeyId" placeholder="AKIA...">
+            <button class="btn-secondary" onclick="validateVendorKey('aws_polly')">Validate</button>
+          </div>
+        </div>
+        <div class="field">
+          <label style="font-size:0.8rem;">AWS Secret Access Key</label>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <input type="password" id="thirdPartyAwsSecretAccessKey" placeholder="AWS secret key">
+            <button class="btn-secondary" onclick="validateVendorKey('aws_polly')">Validate</button>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="margin-bottom:0.65rem;">
+        <div class="field">
+          <label style="font-size:0.8rem;">AWS Region</label>
+          <input type="text" id="thirdPartyAwsRegion" value="eu-west-1" placeholder="eu-west-1">
+        </div>
+        <div class="field">
+          <label style="font-size:0.8rem;">AWS Session Token (optional)</label>
+          <input type="password" id="thirdPartyAwsSessionToken" placeholder="Session token">
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.6rem;">
+        <button class="btn-secondary" onclick="validateAwsPolly()">Validate AWS Polly</button>
+        <span id="thirdPartyAwsPollyStatus" style="font-size:0.78rem;opacity:0.82;">Not validated</span>
       </div>
     </div>
 
