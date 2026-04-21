@@ -2,6 +2,8 @@
 
 FastAPI replacement for the old Node `korvo-config-server`: WiFi DB, config generation, build/flash SSE, OpenRouter proxy, optional audio relay, **translation + TTS**, and **live Whisper transcription**.
 
+The **Korvo Config** UI is one HTML shell plus **partials** per tab (`korvo_server/templates/pages/dashboard.html` and `templates/pages/dashboard/partials/*.html`). For a **section-by-section** tour (WiFi, Build, Bluetooth, Settings, LED, Audio, ASR, Translation, Third-Party, Docs) with screenshots, see the **[repository root `README.md`](../README.md)**.
+
 ## Setup (virtualenv `korvo`)
 
 From this directory (`korvo-server/`):
