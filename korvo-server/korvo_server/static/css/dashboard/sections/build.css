@@ -1,1 +1,290 @@
-/* build section styles (modularized) */
+/* Build & Flash tab — layout, spacing, primary CTA */
+
+#tab-build .build-card {
+  padding: 1.75rem 1.75rem 2rem;
+}
+
+@media (min-width: 640px) {
+  #tab-build .build-card {
+    padding: 2rem 2rem 2.25rem;
+  }
+}
+
+.build-intro {
+  font-size: 0.85rem;
+  color: #9a9a9a;
+  line-height: 1.55;
+  margin: -0.35rem 0 1.35rem;
+  max-width: 42rem;
+}
+
+.build-section {
+  margin-bottom: 1.35rem;
+}
+
+.build-section--tight {
+  margin-bottom: 1rem;
+}
+
+/* One row: label (left) | dropdown (center, grows) | refresh (right) */
+.build-port-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  width: 100%;
+}
+
+.build-port-label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #b5b5b5;
+  white-space: nowrap;
+}
+
+.build-port-select {
+  min-width: 0;
+  width: 100% !important;
+  max-width: 100%;
+}
+
+.build-port-refresh {
+  white-space: nowrap;
+  padding: 0.7rem 1.1rem;
+}
+
+.build-hint {
+  font-size: 0.72rem;
+  color: #6e6e6e;
+  line-height: 1.5;
+  margin: 0.65rem 0 0;
+}
+
+.build-hint code {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.35rem;
+  background: #0d0d0d;
+  border-radius: 4px;
+  border: 1px solid #252525;
+}
+
+.build-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: #a3a3a3;
+  line-height: 1.45;
+  font-weight: normal;
+}
+
+.build-checkbox input[type='checkbox'] {
+  width: auto;
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+  accent-color: #e74c3c;
+}
+
+/* Primary action — generous padding so the pill doesn’t feel cramped */
+.build-flash-cta {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 1.75rem 0 1rem;
+  padding: 1.75rem 1.25rem;
+  background: linear-gradient(180deg, rgba(20, 20, 20, 0.9) 0%, rgba(12, 12, 12, 0.95) 100%);
+  border: 1px solid #252525;
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+@media (min-width: 640px) {
+  .build-flash-cta {
+    margin: 2rem 0 1.15rem;
+    padding: 2rem 1.5rem;
+  }
+}
+
+.build-footnote {
+  font-size: 0.72rem;
+  color: #6a6a6a;
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+  max-width: 40rem;
+}
+
+.build-footnote a {
+  color: #e74c3c;
+  text-decoration: none;
+}
+
+.build-footnote a:hover {
+  text-decoration: underline;
+}
+
+.flash-action-btn {
+  min-width: min(24rem, 100%);
+  padding: 1rem 2rem;
+  min-height: 3.25rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  transition: box-shadow 0.3s ease, background 0.25s ease, color 0.25s ease, border-color 0.25s ease, transform 0.15s ease;
+}
+
+.build-flash-cta .flash-action-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+/* core.css .btn-primary:disabled uses flat gray — override so status glows stay visible */
+.build-flash-cta .btn-primary.flash-action-btn:disabled {
+  opacity: 1;
+  cursor: wait;
+}
+
+.build-flash-cta .btn-primary.flash-action-btn--building:disabled {
+  background: linear-gradient(145deg, #1e3a6e, #152a52) !important;
+  color: #93c5fd !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+}
+
+.build-flash-cta .btn-primary.flash-action-btn--flashing:disabled {
+  background: linear-gradient(145deg, #5c1a1a, #3d1212) !important;
+  color: #fca5a5 !important;
+  border-color: rgba(248, 113, 113, 0.4) !important;
+}
+
+.build-flash-cta .btn-primary.flash-action-btn--writing:disabled {
+  background: linear-gradient(145deg, #422006, #2d1504) !important;
+  color: #fdba74 !important;
+  border-color: rgba(251, 146, 60, 0.35) !important;
+}
+
+/* Idle = default .btn-primary (no extra class) */
+
+.flash-action-btn--building {
+  background: linear-gradient(145deg, #1e3a6e, #152a52);
+  color: #93c5fd;
+  border-color: rgba(96, 165, 250, 0.35);
+  box-shadow:
+    0 0 20px rgba(59, 130, 246, 0.45),
+    0 0 44px rgba(59, 130, 246, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: flashGlowPulse 1.2s ease-in-out infinite;
+}
+
+.flash-action-btn--flashing {
+  background: linear-gradient(145deg, #5c1a1a, #3d1212);
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.4);
+  box-shadow:
+    0 0 22px rgba(239, 68, 68, 0.5),
+    0 0 48px rgba(239, 68, 68, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  animation: flashGlowPulseRed 0.85s ease-in-out infinite;
+}
+
+.flash-action-btn--writing {
+  background: linear-gradient(145deg, #422006, #2d1504);
+  color: #fdba74;
+  border-color: rgba(251, 146, 60, 0.35);
+  box-shadow: 0 0 18px rgba(234, 88, 12, 0.4), 0 0 36px rgba(234, 88, 12, 0.15);
+}
+
+.flash-action-btn--done {
+  background: linear-gradient(145deg, #14532d, #0f3d22);
+  color: #86efac;
+  border-color: rgba(74, 222, 128, 0.45);
+  box-shadow:
+    0 0 24px rgba(34, 197, 94, 0.45),
+    0 0 52px rgba(34, 197, 94, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.flash-action-btn--failed {
+  background: linear-gradient(145deg, #3e2723, #2c1810);
+  color: #ffab91;
+  border-color: rgba(255, 87, 34, 0.35);
+  box-shadow: 0 0 14px rgba(255, 87, 34, 0.25);
+}
+
+.flash-action-btn--incomplete {
+  background: linear-gradient(145deg, #292524, #1c1917);
+  color: #a8a29e;
+  border-color: rgba(168, 162, 158, 0.25);
+}
+
+@keyframes flashGlowPulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 18px rgba(59, 130, 246, 0.4),
+      0 0 40px rgba(59, 130, 246, 0.15);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow:
+      0 0 28px rgba(96, 165, 250, 0.55),
+      0 0 56px rgba(59, 130, 246, 0.28);
+    filter: brightness(1.06);
+  }
+}
+
+@keyframes flashGlowPulseRed {
+  0%,
+  100% {
+    filter: brightness(1);
+    box-shadow:
+      0 0 20px rgba(239, 68, 68, 0.45),
+      0 0 44px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    filter: brightness(1.08);
+    box-shadow:
+      0 0 30px rgba(248, 113, 113, 0.5),
+      0 0 56px rgba(239, 68, 68, 0.28);
+  }
+}
+
+/* Terminal block on Build tab */
+.terminal.terminal--build {
+  margin-top: 0.25rem;
+  border-radius: 12px;
+  border-color: #222;
+}
+
+.terminal--build .terminal-bar {
+  padding: 0.65rem 1rem;
+  min-height: 2.5rem;
+}
+
+#terminalTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.terminal-title-ico {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.terminal-copy-btn {
+  margin-left: auto;
+  padding: 0.35rem 0.65rem !important;
+  font-size: 0.72rem !important;
+  border-radius: 6px;
+}
+
+.terminal--build .terminal-output {
+  min-height: 180px;
+  max-height: min(420px, 45vh);
+  padding: 1.15rem 1.1rem;
+  font-size: 0.72rem;
+  line-height: 1.65;
+}

@@ -1,20 +1,67 @@
 <div class="tab-panel" role="tabpanel" id="tab-audio" aria-labelledby="tabbtn-audio">
-    <!-- Audio Streaming -->
+    <!-- Listen: board mic stream in browser -->
     <div class="card" id="audioCard">
       <h2>
-        <span class="icon">🎵</span> Audio Streaming
+        <span class="icon">🎵</span> Listen to board microphone
         <span class="badge disconnected" id="audioBadge">Not connected</span>
       </h2>
+      <p class="audio-card-lead">Stream from the ESP32 (<code>/api/audio/stream</code>) through this server’s relay.</p>
       <div class="field">
         <label>Korvo host (<code>korvo.local</code> works on macOS / same LAN when mDNS is on; use a numeric IP if your browser cannot resolve <code>.local</code>)</label>
-        <input type="text" id="boardIp" value="" placeholder="korvo.local or 192.168.1.27" style="margin-bottom: 1rem;">
+        <input type="text" id="boardIp" value="" placeholder="korvo.local or 192.168.1.27" class="audio-board-host-input">
       </div>
-      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;margin-bottom:0.75rem;cursor:pointer;">
-        <input type="checkbox" id="audioUseRelay" checked style="width:auto;">
-        Play via this server (same-origin relay — usually much less buffering than hitting the board URL directly)
+      <label class="audio-relay-option">
+        <input type="checkbox" id="audioUseRelay" checked>
+        Play via this server (same-origin relay — usually less buffering than hitting the board URL directly)
       </label>
-      <button class="btn-primary" id="audioBtn" onclick="toggleAudioStream()" style="width:100%;padding:0.8rem;">▶️ Start live mic (16 kHz mono)</button>
-      <p id="audioStreamStatus" style="font-size:0.8rem;margin-top:0.75rem;padding:0.5rem 0.65rem;background:#0a0a0a;border:1px solid #2a2a2a;border-radius:8px;line-height:1.4;min-height:2.5rem;">Idle — uses Web Audio (same WAV → s16le @ 16 kHz as <code>listen.sh</code> / relay). HTML5 <code>&lt;audio&gt;</code> cannot play this infinite chunked stream reliably.</p>
-      <p style="font-size:0.75rem;opacity:0.75;margin-top:0.5rem;line-height:1.4;">Default URL: same-origin <code>/api/audio/relay?url=</code> + encoded <code>http://&lt;board&gt;/api/audio/stream</code>. Uncheck relay only if your browser can reach the board IP directly.</p>
+      <button type="button" class="btn-primary audio-live-mic-btn audio-live-mic-btn--solo" id="audioBtn" onclick="toggleAudioStream()">▶️ Start live mic (16 kHz mono)</button>
+      <p id="audioStreamStatus" class="audio-stream-status">Idle — uses Web Audio (same WAV → s16le @ 16 kHz as <code>listen.sh</code> / relay). HTML5 <code>&lt;audio&gt;</code> cannot play this infinite chunked stream reliably.</p>
+    </div>
+
+    <!-- Shared playback volume: listen + push mic + file + board (when CORS allows) -->
+    <section class="audio-playback-volume-shell" aria-labelledby="audioPlaybackVolHeading">
+      <div class="audio-playback-volume-panel">
+        <div class="audio-playback-volume-panel__head">
+          <h3 class="audio-playback-volume-title" id="audioPlaybackVolHeading">
+            <span class="audio-playback-volume-ico" aria-hidden="true">🔊</span>
+            Playback volume
+          </h3>
+          <p class="audio-playback-volume-scope">
+            Applies to <strong>listening here</strong> (board mic stream), <strong>push mic</strong> and <strong>file stream</strong> level to the ESP32, and the <strong>device speaker</strong> when the browser can reach <code>/api/audio/output-volume</code> on the board.
+          </p>
+        </div>
+        <div class="audio-playback-volume-panel__control" role="group" aria-labelledby="audioBoardVolumeLabel">
+          <label id="audioBoardVolumeLabel" class="audio-volume-label" for="audioBoardVolume">Level</label>
+          <div class="audio-volume-row">
+            <input type="range" id="audioBoardVolume" min="0" max="100" value="100" step="1" class="audio-board-volume-slider" aria-valuemin="0" aria-valuemax="100" aria-labelledby="audioBoardVolumeLabel" aria-describedby="audioBoardVolumeHint">
+            <span class="audio-board-volume-value-wrap"><span id="audioBoardVolumeValue" class="audio-board-volume-value">100</span><span class="audio-board-volume-pct">%</span></span>
+          </div>
+          <p id="audioBoardVolumeHint" class="audio-board-volume-hint audio-board-volume-hint--in-panel">Saved in this browser. If POST to the device fails (cross-origin), gain still applies in the dashboard and in PCM sent from this page.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="card" id="audioUploadCard">
+      <h2><span class="icon">📤</span> Push audio to ESP32</h2>
+      <p class="audio-upload-intro">Stream the microphone to the device, or upload a file (MP3/M4A/WAV, etc.). The server transcodes with FFmpeg to mono 16 kHz PCM. Only one mode runs at a time: mic <em>or</em> file — starting one stops the other. Level uses <strong>Playback volume</strong> above.</p>
+      <div class="audio-push-mic-row">
+        <button type="button" class="btn-primary audio-push-mic-btn" id="audioPushMicBtn" onclick="togglePushMic()">🎙️ Start push mic</button>
+      </div>
+      <div class="audio-file-push">
+        <label class="audio-file-label" for="audioPushFile">Audio file</label>
+        <input type="file" id="audioPushFile" accept="audio/*,.wav,.pcm,.mp3,.m4a,.aac,.flac,.ogg" class="audio-file-input">
+        <div class="audio-file-controls">
+          <button type="button" class="btn-primary audio-file-toggle-btn" id="audioFileStreamToggleBtn" data-stream-state="idle" onclick="toggleFileStreamPrimary()" title="Start streaming">
+            <span class="audio-btn-ico" aria-hidden="true"><svg class="audio-svg-ico" viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M8 5v14l11-7z"/></svg></span><span class="audio-btn-text">Start</span>
+          </button>
+          <button type="button" class="btn-secondary audio-file-stop-btn" id="audioFileStopBtn" onclick="stopPushFile()" disabled title="Stop stream">Stop</button>
+        </div>
+        <div class="audio-file-progress-row">
+          <input type="range" id="audioFileProgress" class="audio-file-progress" min="0" max="1000" value="0" step="1" disabled aria-label="Playback position">
+          <span id="audioFileTimeLabel" class="audio-file-time-label">0:00 / —</span>
+        </div>
+        <p id="audioPushStatus" class="audio-push-status">Idle.</p>
+        <p id="audioPushProgress" class="audio-push-detail">No active file stream.</p>
+      </div>
     </div>
     </div>

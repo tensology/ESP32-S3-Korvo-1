@@ -18,7 +18,19 @@
       </div>
       <div class="field">
         <label>Password</label>
-        <input type="password" id="password" placeholder="WiFi password">
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          <input type="password" id="password" placeholder="WiFi password" style="flex:1;">
+          <button
+            type="button"
+            class="btn-secondary"
+            id="wifiPasswordToggleBtn"
+            onclick="toggleWifiPasswordVisibility()"
+            aria-pressed="false"
+            aria-label="Show WiFi password"
+          >
+            Show
+          </button>
+        </div>
       </div>
       <div class="btn-row">
         <button class="btn-primary" onclick="saveWifi()">Save & Set Active</button>

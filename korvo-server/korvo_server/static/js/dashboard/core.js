@@ -61,6 +61,17 @@
     }
 
     // ─── Save WiFi ───
+    function toggleWifiPasswordVisibility() {
+      const pwd = document.getElementById('password');
+      const btn = document.getElementById('wifiPasswordToggleBtn');
+      if (!pwd || !btn) return;
+      const show = pwd.type === 'password';
+      pwd.type = show ? 'text' : 'password';
+      btn.textContent = show ? 'Hide' : 'Show';
+      btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+      btn.setAttribute('aria-label', show ? 'Hide WiFi password' : 'Show WiFi password');
+    }
+
     async function saveWifi() {
       const ssid = document.getElementById('ssid').value.trim();
       const password = document.getElementById('password').value;
@@ -192,8 +203,15 @@
         awsStatusEl.style.color = on ? '#4caf50' : '#ff9800';
       }
       let host = (data.esp_ip || '').trim();
-      if (!host) host = (localStorage.getItem('korvo_esp_ip') || '').trim();
+      const cachedEspHost = (localStorage.getItem('korvo_esp_ip') || '').trim();
+      const cachedBoardHost = (localStorage.getItem('korvo_board_ip') || '').trim();
+      if (!host) host = cachedEspHost;
+      if (!host) host = cachedBoardHost;
       if (!host) host = (document.getElementById('espIpInput').value || 'korvo.local').trim();
+      host = _normalizeBoardHost(host);
+      if (host.toLowerCase().endsWith('.local') && _isIpv4Host(cachedBoardHost)) {
+        host = cachedBoardHost;
+      }
       document.getElementById('espIpInput').value = host;
       espIp = host;
       localStorage.setItem('korvo_esp_ip', host);
@@ -252,19 +270,42 @@
     // ─── Build & Flash (SSE streaming) ───
     let bootCountdownInterval = null;
 
+    /**
+     * Single centered button shows build/flash status (replaces duplicate header badge).
+     * phase: idle | building | flashing | writing | done | failed | incomplete
+     */
+    function setFlashActionButton(phase, html, opts) {
+      const btn = document.getElementById('flashBtn');
+      if (!btn) return;
+      const mod = {
+        idle: [],
+        building: ['flash-action-btn--building'],
+        flashing: ['flash-action-btn--flashing'],
+        writing: ['flash-action-btn--writing'],
+        done: ['flash-action-btn--done'],
+        failed: ['flash-action-btn--failed'],
+        incomplete: ['flash-action-btn--incomplete'],
+      };
+      const extra = mod[phase] || [];
+      btn.className = ['btn-primary', 'flash-action-btn'].concat(extra).join(' ');
+      btn.innerHTML = html;
+      if (opts && typeof opts.disabled === 'boolean') {
+        btn.disabled = opts.disabled;
+      }
+    }
+
     async function buildAndFlash() {
       const btn = document.getElementById('flashBtn');
-      const badge = document.getElementById('flashBadge');
       const terminal = document.getElementById('terminal');
       const output = document.getElementById('terminalOutput');
       const port = document.getElementById('serialPort').value;
 
       if (!port || port.includes('No USB')) return toast('No serial port selected', 'error');
 
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Working...';
-      badge.style.display = 'inline-block';
-      badge.className = 'badge building'; badge.textContent = 'Building';
+      let flashSuccessDone = false;
+      let flashExplicitFailed = false;
+
+      setFlashActionButton('building', '<span class="spinner"></span> Starting…', { disabled: true });
       terminal.classList.add('active');
       output.innerHTML = '';
 
@@ -306,12 +347,12 @@
 
         if (success) {
           content.classList.add('success');
-          content.querySelector('h3').textContent = '✅ Board Connected!';
-          timer.textContent = '✓';
+          content.querySelector('h3').textContent = 'Board connected';
+          timer.textContent = 'OK';
           setTimeout(() => {
             modal.classList.remove('active');
             content.classList.remove('success');
-            content.querySelector('h3').textContent = '🔄 Enter Download Mode';
+            content.querySelector('h3').textContent = 'Enter download mode';
           }, 2000);
         } else {
           modal.classList.remove('active');
@@ -331,17 +372,14 @@
           const errText = await res.text();
           termLine(`HTTP ${res.status}: ${errText || res.statusText}`, 'line-error');
           toast('Build & flash refused or failed — see terminal output', 'error');
-          badge.className = 'badge disconnected';
-          badge.textContent = 'Failed';
-          btn.disabled = false;
-          btn.innerHTML = '🔨 Build & Flash to Board';
+          flashExplicitFailed = true;
+          setFlashActionButton('failed', 'Request failed — see log', { disabled: false });
           return;
         }
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let currentEvent = '';
 
         while (true) {
           const { done, value } = await reader.read();
@@ -370,8 +408,7 @@
               switch (eventType) {
                 case 'phase': {
                   const label = typeof parsed === 'string' ? parsed : (parsed && parsed.message) || JSON.stringify(parsed);
-                  badge.textContent = label;
-                  btn.innerHTML = `<span class="spinner"></span> ${label}`;
+                  setFlashActionButton('building', '<span class="spinner"></span> ' + label, { disabled: true });
                   termLine(`\n▸ ${label}`, 'line-phase');
                   break;
                 }
@@ -386,9 +423,7 @@
                 }
 
                 case 'flash_start':
-                  badge.className = 'badge flashing';
-                  badge.textContent = 'Flashing';
-                  btn.innerHTML = '<span class="spinner"></span> Flashing...';
+                  setFlashActionButton('flashing', '<span class="spinner"></span> Flashing…', { disabled: true });
                   break;
 
                 case 'boot_mode':
@@ -397,11 +432,10 @@
 
                 case 'boot_success':
                   hideBootModal(true);
-                  badge.textContent = 'Writing...';
+                  setFlashActionButton('writing', '<span class="spinner"></span> Writing…', { disabled: true });
                   break;
 
                 case 'flash_progress':
-                  // Don't spam terminal with every write, but update badge
                   break;
 
                 case 'flash_done':
@@ -410,11 +444,15 @@
 
                 case 'complete':
                   if (parsed.success) {
-                    badge.className = 'badge done'; badge.textContent = 'Done ✓';
-                    btn.innerHTML = '🔨 Build & Flash to Board';
+                    flashSuccessDone = true;
+                    setFlashActionButton('done', 'Done — firmware flashed', { disabled: false });
                     toast('Firmware built & flashed!');
+                    setTimeout(() => {
+                      setFlashActionButton('idle', 'Build & Flash to Board', { disabled: false });
+                    }, 3200);
                   } else {
-                    badge.className = 'badge disconnected'; badge.textContent = 'Failed';
+                    flashExplicitFailed = true;
+                    setFlashActionButton('failed', 'Flash failed — see log', { disabled: false });
                     toast('Flash failed', 'error');
                     hideBootModal(false);
                   }
@@ -426,42 +464,83 @@
           }
         }
 
-        // If we get here without a complete event
-        if (!badge.classList.contains('done')) {
-          badge.className = 'badge disconnected'; badge.textContent = 'Done';
-          btn.innerHTML = '🔨 Build & Flash to Board';
+        // Stream ended without a successful `complete` event (do not clobber an explicit failure)
+        if (!flashSuccessDone && !flashExplicitFailed) {
+          setFlashActionButton('incomplete', 'Finished (no success confirm)', { disabled: false });
         }
 
       } catch (e) {
         termLine(`Error: ${e.message}`, 'line-error');
-        badge.className = 'badge disconnected'; badge.textContent = 'Error';
+        flashExplicitFailed = true;
+        setFlashActionButton('failed', 'Error — see log', { disabled: false });
         toast('Flash failed', 'error');
       }
+    }
 
-      btn.disabled = false;
-      btn.innerHTML = '🔨 Build & Flash to Board';
+    async function copyBuildTerminalOutput() {
+      const output = document.getElementById('terminalOutput');
+      if (!output) return;
+      const text = String(output.textContent || '').trim();
+      if (!text) {
+        toast('No terminal output to copy', 'error');
+        return;
+      }
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const range = document.createRange();
+          range.selectNodeContents(output);
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(range);
+            document.execCommand('copy');
+            sel.removeAllRanges();
+          }
+        }
+        toast('Build output copied');
+      } catch (_) {
+        toast('Copy failed', 'error');
+      }
     }
 
     // ─── LED Control ───
-    let espIp = localStorage.getItem('korvo_esp_ip') || '';
+    let espIp = _normalizeBoardHost(localStorage.getItem('korvo_esp_ip') || localStorage.getItem('korvo_board_ip') || '');
     let ledOnline = false;
     let ledPollInterval = null;
+    /** Last time GET/POST to the board LED API succeeded (avoids false "offline" when mDNS is slow). */
+    let ledBoardLastOkAt = 0;
+
+    function _ledPollTimeoutMs() {
+      const h = String(espIp || '').toLowerCase();
+      return h.endsWith('.local') ? 15000 : 10000;
+    }
+
+    function markLedBoardReachable() {
+      ledBoardLastOkAt = Date.now();
+      ledOnline = true;
+      const badge = document.getElementById('ledBadge');
+      if (badge) {
+        badge.className = 'badge connected';
+        badge.textContent = espIp;
+      }
+    }
     const KORVO_LED_COUNT_DEFAULT = 12;
     let korvoLedCount = KORVO_LED_COUNT_DEFAULT;
     let korvoStripPixels = Array.from({ length: KORVO_LED_COUNT_DEFAULT }, () => [0, 0, 0]);
-    let lastLedState = { on: false, preset: 0, r: 0, g: 0, b: 0, brightness: 180 };
+    const LED_DEFAULT_BRIGHTNESS = 12;
+    let lastLedState = { on: false, preset: 0, r: 0, g: 0, b: 0, brightness: LED_DEFAULT_BRIGHTNESS };
+    /** Setting color/brightness from code must not fire change handlers (duplicate sendLed vs ESP32). */
+    let ledSuppressProgrammaticColor = false;
+    let ledSuppressProgrammaticBrightness = false;
+    /** ESP-IDF httpd is effectively single-flight for a client; serialize GET + POST to /api/led so poll never races controls. */
+    let ledApiChain = Promise.resolve();
 
-    function ledInitPixSelect() {
-      const sel = document.getElementById('ledPixIndex');
-      if (!sel || sel.dataset.ready === '1') return;
-      sel.innerHTML = '';
-      for (let i = 0; i < KORVO_LED_COUNT_DEFAULT; i++) {
-        const o = document.createElement('option');
-        o.value = String(i);
-        o.textContent = 'LED ' + i;
-        sel.appendChild(o);
-      }
-      sel.dataset.ready = '1';
+    function enqueueLedApi(fn) {
+      const p = ledApiChain.then(() => fn());
+      ledApiChain = p.catch(() => {});
+      return p;
     }
 
     function ledRgbClose(a, b, c, ar, ag, ab) {
@@ -487,41 +566,153 @@
         korvoStripPixels = Array.from({ length: n }, () => [r, g, b]);
       } else if (!on || preset === 0) {
         korvoStripPixels = Array.from({ length: n }, () => [0, 0, 0]);
-      } else if (on && preset >= 2 && preset <= 5) {
+      } else if (on && preset >= 2 && preset <= 15 && preset !== 6) {
         const r = Number(state.r) || 0, g = Number(state.g) || 0, b = Number(state.b) || 0;
         korvoStripPixels = Array.from({ length: n }, () => [r, g, b]);
       }
     }
 
     function renderLedStripPreview() {
-      const wrap = document.getElementById('ledStripPreview');
+      const wrap = document.getElementById('ledRingPreview');
       if (!wrap) return;
-      while (wrap.children.length < korvoLedCount) {
-        const d = document.createElement('div');
-        d.className = 'led-strip-dot';
-        wrap.appendChild(d);
-      }
-      while (wrap.children.length > korvoLedCount) {
-        wrap.removeChild(wrap.lastChild);
+      wrap.style.setProperty('--led-n', String(Math.max(1, korvoLedCount)));
+      if (wrap.children.length !== korvoLedCount) {
+        wrap.innerHTML = '';
+        for (let i = 0; i < korvoLedCount; i++) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'led-ring-dot';
+          btn.style.setProperty('--i', String(i));
+          btn.setAttribute('aria-label', 'LED ' + i + ' — tap to toggle (off or paint from picker)');
+          btn.addEventListener('click', () => {
+            ledRingPixelClick(i);
+          });
+          wrap.appendChild(btn);
+        }
       }
       for (let i = 0; i < korvoLedCount; i++) {
         const row = korvoStripPixels[i] || [0, 0, 0];
         const el = wrap.children[i];
+        const lit = row[0] + row[1] + row[2] > 0;
         el.style.background = 'rgb(' + row[0] + ',' + row[1] + ',' + row[2] + ')';
-        el.title = 'LED ' + i;
+        el.style.boxShadow = lit ? '0 0 8px rgba(255,255,255,0.25)' : 'none';
+        el.classList.toggle('led-ring-dot--off', !lit);
       }
     }
 
+    /* Render an initial ring immediately so dots remain visible before first board poll. */
+    renderLedStripPreview();
+
+    const LED_NAMED_SWATCHES = [
+      ['ledTogRed', 255, 0, 0],
+      ['ledTogGreen', 0, 255, 0],
+      ['ledTogBlue', 0, 100, 255],
+      ['ledTogCyan', 0, 255, 255],
+      ['ledTogMagenta', 255, 0, 255],
+      ['ledTogOrange', 255, 150, 0],
+      ['ledTogYellow', 255, 220, 0],
+      ['ledTogPink', 255, 105, 180],
+      ['ledTogPurple', 128, 0, 255],
+      ['ledTogLime', 180, 255, 0],
+      ['ledTogTeal', 0, 128, 128],
+      ['ledTogCoral', 255, 127, 80],
+      ['ledTogWhite', 255, 255, 255],
+      ['ledTogWarm', 255, 200, 120],
+    ];
+
     function updateNamedColorToggleStyles() {
-      const rows = [['ledTogRed', 255, 0, 0], ['ledTogGreen', 0, 255, 0], ['ledTogBlue', 0, 100, 255], ['ledTogOrange', 255, 150, 0], ['ledTogYellow', 255, 220, 0]];
-      for (let j = 0; j < rows.length; j++) {
-        const id = rows[j][0];
-        const rr = rows[j][1], gg = rows[j][2], bb = rows[j][3];
+      for (let j = 0; j < LED_NAMED_SWATCHES.length; j++) {
+        const id = LED_NAMED_SWATCHES[j][0];
+        const rr = LED_NAMED_SWATCHES[j][1], gg = LED_NAMED_SWATCHES[j][2], bb = LED_NAMED_SWATCHES[j][3];
         const el = document.getElementById(id);
         if (!el) continue;
         const on = lastLedState.on && lastLedState.preset === 1 && ledRgbClose(lastLedState.r, lastLedState.g, lastLedState.b, rr, gg, bb);
         el.classList.toggle('active', on);
       }
+    }
+
+    function rgbToHexByte(v) {
+      const n = Math.max(0, Math.min(255, Math.round(Number(v))));
+      return n.toString(16).padStart(2, '0');
+    }
+
+    function rgbToHex(r, g, b) {
+      return '#' + rgbToHexByte(r) + rgbToHexByte(g) + rgbToHexByte(b);
+    }
+
+    function setLedColorInputValue(hex) {
+      const cp = document.getElementById('ledColor');
+      if (!cp) return;
+      ledSuppressProgrammaticColor = true;
+      try {
+        cp.value = hex;
+        updateLedCustomPickerButton(hex);
+      } finally {
+        /* Defer clear so any browser that dispatches change async still sees suppress. */
+        setTimeout(() => {
+          ledSuppressProgrammaticColor = false;
+        }, 0);
+      }
+    }
+
+    function updateLedCustomPickerButton(hex) {
+      const btn = document.getElementById('ledCustomPickerBtn');
+      if (!btn) return;
+      const h = String(hex || '').trim();
+      if (!/^#[0-9a-fA-F]{6}$/.test(h)) return;
+      const r = parseInt(h.slice(1, 3), 16);
+      const g = parseInt(h.slice(3, 5), 16);
+      const b = parseInt(h.slice(5, 7), 16);
+      // Perceived luminance for readable label color
+      const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      btn.style.background = h;
+      btn.style.borderColor = 'rgba(255,255,255,0.18)';
+      btn.style.color = lum > 140 ? '#111' : '#f2f2f2';
+      const slider = document.getElementById('ledBrightness');
+      if (slider) {
+        slider.style.accentColor = h;
+      }
+    }
+
+    function setLedBrightnessInputValue(num) {
+      const el = document.getElementById('ledBrightness');
+      const val = document.getElementById('brightnessVal');
+      if (!el) return;
+      ledSuppressProgrammaticBrightness = true;
+      try {
+        el.value = String(num);
+        if (val) val.textContent = String(num);
+      } finally {
+        setTimeout(() => {
+          ledSuppressProgrammaticBrightness = false;
+        }, 0);
+      }
+    }
+
+    function ledApplyOptimisticSolid(r, g, b, br) {
+      const rr = Math.max(0, Math.min(255, r | 0));
+      const gg = Math.max(0, Math.min(255, g | 0));
+      const bb = Math.max(0, Math.min(255, b | 0));
+      lastLedState = { on: true, preset: 1, r: rr, g: gg, b: bb, brightness: br };
+      korvoStripPixels = Array.from({ length: korvoLedCount }, () => [rr, gg, bb]);
+      setLedColorInputValue(rgbToHex(rr, gg, bb));
+      document.getElementById('ledPowerBtn').textContent = 'ON';
+      document.getElementById('ledPowerBtn').style.background = '#1a472a';
+      document.getElementById('ledPowerBtn').style.color = '#4caf50';
+      renderLedStripPreview();
+      updateNamedColorToggleStyles();
+    }
+
+    function ledApplyOptimisticOff() {
+      const br = parseInt(document.getElementById('ledBrightness').value, 10);
+      const b = Number.isFinite(br) ? br : LED_DEFAULT_BRIGHTNESS;
+      lastLedState = { on: false, preset: 0, r: 0, g: 0, b: 0, brightness: b };
+      korvoStripPixels = Array.from({ length: korvoLedCount }, () => [0, 0, 0]);
+      document.getElementById('ledPowerBtn').textContent = 'OFF';
+      document.getElementById('ledPowerBtn').style.background = '#222';
+      document.getElementById('ledPowerBtn').style.color = '#666';
+      renderLedStripPreview();
+      updateNamedColorToggleStyles();
     }
 
     function setEspIp() {
@@ -533,15 +724,26 @@
       }
     }
 
-    async function sendLed(data) {
+    async function sendLedInternal(data) {
       if (!espIp) { setEspIp(); return null; }
+      const url = 'http://' + espIp + '/api/led';
+      const postTimeoutMs = _ledPollTimeoutMs() * 2;
+      const postSignal =
+        typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? AbortSignal.timeout(postTimeoutMs)
+          : undefined;
+      let text = '';
       try {
-        const res = await fetch(`http://${espIp}/api/led`, {
+        const res = await fetch(url, {
           method: 'POST',
+          mode: 'cors',
+          credentials: 'omit',
+          cache: 'no-store',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
+          ...(postSignal ? { signal: postSignal } : {}),
         });
-        const text = await res.text();
+        text = await res.text();
         if (!res.ok) {
           let msg = 'LED request failed (' + res.status + ')';
           try {
@@ -551,36 +753,75 @@
           toast(msg, 'error');
           return null;
         }
-        const state = JSON.parse(text);
-        updateLedUI(state);
-        return state;
       } catch (e) {
+        /* Only transport / timeout / browser blocks (e.g. mixed content) — not JSON/UI errors. */
+        const name = e && e.name ? String(e.name) : '';
+        const detail = e && e.message ? String(e.message) : String(e);
+        console.warn('LED POST fetch failed', { url, name, detail });
         document.getElementById('ledBadge').className = 'badge disconnected';
         document.getElementById('ledBadge').textContent = 'Board offline';
         ledOnline = false;
-        toast('LED request failed (network)', 'error');
+        ledBoardLastOkAt = 0;
+        if (name === 'AbortError') {
+          toast('LED request timed out — try a numeric LAN IP instead of .local', 'error');
+        } else if (/mixed content|insecure|https|ssl|certificate/i.test(detail)) {
+          toast('LED blocked by browser (HTTPS page cannot call HTTP device — open dashboard over HTTP or use HTTPS on the board)', 'error');
+        } else {
+          toast('LED request failed (network)', 'error');
+        }
         return null;
       }
-    }
-
-    async function checkLedBoard() {
-      if (!espIp) return;
+      let state;
       try {
-        const res = await fetch(`http://${espIp}/api/led`, { signal: AbortSignal.timeout(2000) });
-        const state = await res.json();
-        ledOnline = true;
-        document.getElementById('ledBadge').className = 'badge connected';
-        document.getElementById('ledBadge').textContent = espIp;
+        state = JSON.parse(text);
+      } catch (e) {
+        console.error('LED POST response was not JSON', text ? text.slice(0, 400) : '(empty)', e);
+        toast('LED: invalid JSON from board — check console', 'error');
+        return null;
+      }
+      try {
         updateLedUI(state);
       } catch (e) {
-        ledOnline = false;
-        document.getElementById('ledBadge').className = 'badge disconnected';
-        document.getElementById('ledBadge').textContent = 'Board offline';
+        console.error('LED UI update threw', e, state);
+        markLedBoardReachable();
+        toast('LED board responded but the dashboard failed to refresh (see console)', 'error');
+        return state;
       }
+      markLedBoardReachable();
+      return state;
+    }
+
+    function sendLed(data) {
+      return enqueueLedApi(() => sendLedInternal(data));
+    }
+
+    function checkLedBoard() {
+      if (!espIp) return;
+      return enqueueLedApi(async () => {
+        try {
+          const res = await fetch(`http://${espIp}/api/led`, {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(_ledPollTimeoutMs()),
+          });
+          if (!res.ok) {
+            throw new Error('bad status ' + res.status);
+          }
+          const state = await res.json();
+          updateLedUI(state);
+          markLedBoardReachable();
+        } catch (e) {
+          /* Slow mDNS or one dropped poll should not override a recent successful control request. */
+          if (Date.now() - ledBoardLastOkAt < 45000) {
+            return;
+          }
+          ledOnline = false;
+          document.getElementById('ledBadge').className = 'badge disconnected';
+          document.getElementById('ledBadge').textContent = 'Board offline';
+        }
+      });
     }
 
     function updateLedUI(state) {
-      ledInitPixSelect();
       lastLedState = {
         on: !!state.on,
         preset: Number(state.preset) || 0,
@@ -593,12 +834,11 @@
       document.getElementById('ledPowerBtn').textContent = state.on ? 'ON' : 'OFF';
       document.getElementById('ledPowerBtn').style.background = state.on ? '#1a472a' : '#222';
       document.getElementById('ledPowerBtn').style.color = state.on ? '#4caf50' : '#666';
-      document.getElementById('ledBrightness').value = state.brightness;
-      document.getElementById('brightnessVal').textContent = state.brightness;
-      /* Preset 6 = per-pixel: do not touch the color picker (LED index changes & polls should not clobber it). */
+      setLedBrightnessInputValue(state.brightness);
+      /* Preset 6 = per-pixel: do not touch the color picker (polls should not clobber it). */
       if (lastLedState.preset !== 6) {
         const hex = '#' + [state.r, state.g, state.b].map((v) => Number(v).toString(16).padStart(2, '0')).join('');
-        document.getElementById('ledColor').value = hex;
+        setLedColorInputValue(hex);
       }
       renderLedStripPreview();
       updateNamedColorToggleStyles();
@@ -614,15 +854,35 @@
       const r = parseInt(hex.slice(1, 3), 16);
       const g = parseInt(hex.slice(3, 5), 16);
       const b = parseInt(hex.slice(5, 7), 16);
-      await sendLed({ on: preset > 0, preset, r, g, b, brightness: parseInt(document.getElementById('ledBrightness').value, 10) });
+      const br = parseInt(document.getElementById('ledBrightness').value, 10);
+      const brightness = Number.isFinite(br) ? br : LED_DEFAULT_BRIGHTNESS;
+      /* Pulse/fade use per-pixel palette when the ring has been painted; otherwise firmware fills from r,g,b. */
+      if (preset === 10 || preset === 11) {
+        const px = [];
+        let hasPaint = false;
+        for (let i = 0; i < korvoLedCount; i++) {
+          const row = (korvoStripPixels[i] || [0, 0, 0]).slice(0, 3);
+          px.push(row);
+          if ((row[0] || 0) + (row[1] || 0) + (row[2] || 0) > 0) {
+            hasPaint = true;
+          }
+        }
+        if (hasPaint) {
+          await sendLed({ on: true, preset, pixels: px, r, g, b, brightness });
+          return;
+        }
+      }
+      await sendLed({ on: preset > 0, preset, r, g, b, brightness });
     }
 
-    async function ledNamedToggle(r, g, b) {
-      const br = parseInt(document.getElementById('ledBrightness').value, 10) || 180;
+    function ledNamedToggle(r, g, b) {
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || LED_DEFAULT_BRIGHTNESS;
       if (lastLedState.on && lastLedState.preset === 1 && ledRgbClose(lastLedState.r, lastLedState.g, lastLedState.b, r, g, b)) {
-        await sendLed({ on: false, preset: 0 });
+        ledApplyOptimisticOff();
+        sendLed({ on: false, preset: 0 }).catch(() => {});
       } else {
-        await sendLed({ on: true, preset: 1, r, g, b, brightness: br });
+        ledApplyOptimisticSolid(r, g, b, br);
+        sendLed({ on: true, preset: 1, r, g, b, brightness: br }).catch(() => {});
       }
     }
 
@@ -630,50 +890,92 @@
       return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
     }
 
-    async function ledApplyPickerToIndex() {
-      const idx = parseInt(document.getElementById('ledPixIndex').value, 10);
-      if (isNaN(idx)) return;
+    async function ledApplyPickerToIndex(idx) {
+      if (typeof idx !== 'number' || idx < 0 || idx >= korvoLedCount) return;
       const hex = document.getElementById('ledColor').value;
       const rgb = ledHexToRgb(hex);
       korvoStripPixels[idx] = rgb.slice();
       renderLedStripPreview();
-      const br = parseInt(document.getElementById('ledBrightness').value, 10) || 180;
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || LED_DEFAULT_BRIGHTNESS;
       await sendLed({ pixel: { i: idx, r: rgb[0], g: rgb[1], b: rgb[2] }, preset: 6, on: true, brightness: br });
     }
 
-    async function ledTurnIndexOff() {
-      const idx = parseInt(document.getElementById('ledPixIndex').value, 10);
-      if (isNaN(idx)) return;
+    async function ledTurnPixelOff(idx) {
+      if (typeof idx !== 'number' || idx < 0 || idx >= korvoLedCount) return;
       korvoStripPixels[idx] = [0, 0, 0];
       renderLedStripPreview();
-      const br = parseInt(document.getElementById('ledBrightness').value, 10) || 180;
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || LED_DEFAULT_BRIGHTNESS;
       await sendLed({ pixel: { i: idx, r: 0, g: 0, b: 0 }, preset: 6, on: true, brightness: br });
     }
 
-    async function ledPushFullStrip() {
-      const br = parseInt(document.getElementById('ledBrightness').value, 10) || 180;
-      const px = [];
-      for (let i = 0; i < KORVO_LED_COUNT_DEFAULT; i++) {
-        px.push((korvoStripPixels[i] || [0, 0, 0]).slice(0, 3));
+    async function ledRingPixelClick(idx) {
+      if (typeof idx !== 'number' || idx < 0 || idx >= korvoLedCount) return;
+      const row = korvoStripPixels[idx] || [0, 0, 0];
+      const isLit = (Number(row[0]) || 0) + (Number(row[1]) || 0) + (Number(row[2]) || 0) > 0;
+      if (isLit) {
+        await ledTurnPixelOff(idx);
+        return;
       }
-      await sendLed({ pixels: px, preset: 6, on: true, brightness: br });
+      await ledApplyPickerToIndex(idx);
+    }
+
+    async function ledPushFullStrip() {
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || LED_DEFAULT_BRIGHTNESS;
+      const hex = document.getElementById('ledColor').value;
+      const rgb = ledHexToRgb(hex);
+      const px = [];
+      for (let i = 0; i < korvoLedCount; i++) {
+        const row = [rgb[0], rgb[1], rgb[2]];
+        korvoStripPixels[i] = row;
+        px.push(row);
+      }
+      /* Make the action visible immediately, then sync to board. */
+      lastLedState = { on: true, preset: 6, r: rgb[0], g: rgb[1], b: rgb[2], brightness: br };
+      renderLedStripPreview();
+      await sendLed({ pixels: px, preset: 6, on: true, r: rgb[0], g: rgb[1], b: rgb[2], brightness: br });
+    }
+
+    async function ledRandomizeStrip() {
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || LED_DEFAULT_BRIGHTNESS;
+      const px = [];
+      for (let i = 0; i < korvoLedCount; i++) {
+        const row = [
+          Math.floor(Math.random() * 256),
+          Math.floor(Math.random() * 256),
+          Math.floor(Math.random() * 256),
+        ];
+        korvoStripPixels[i] = row;
+        px.push(row);
+      }
+      const first = px[0] || [0, 0, 0];
+      lastLedState = { on: true, preset: 6, r: first[0], g: first[1], b: first[2], brightness: br };
+      renderLedStripPreview();
+      await sendLed({ pixels: px, preset: 6, on: true, r: first[0], g: first[1], b: first[2], brightness: br });
     }
 
     // Event listeners for color/brightness changes
+    updateLedCustomPickerButton((document.getElementById('ledColor') && document.getElementById('ledColor').value) || '#0096ff');
+    document.getElementById('ledColor').addEventListener('input', (e) => {
+      updateLedCustomPickerButton(e.target.value);
+    });
     document.getElementById('ledColor').addEventListener('change', async (e) => {
-      if (lastLedState.preset === 6) return;
       const hex = e.target.value;
+      updateLedCustomPickerButton(hex);
+      if (ledSuppressProgrammaticColor) return;
       const r = parseInt(hex.slice(1, 3), 16);
       const g = parseInt(hex.slice(3, 5), 16);
       const b = parseInt(hex.slice(5, 7), 16);
-      await sendLed({ r, g, b });
+      const br = parseInt(document.getElementById('ledBrightness').value, 10) || LED_DEFAULT_BRIGHTNESS;
+      ledApplyOptimisticSolid(r, g, b, br);
+      await sendLed({ on: true, preset: 1, r, g, b, brightness: br });
     });
 
     document.getElementById('ledBrightness').addEventListener('input', (e) => {
       document.getElementById('brightnessVal').textContent = e.target.value;
     });
     document.getElementById('ledBrightness').addEventListener('change', async (e) => {
-      await sendLed({ brightness: parseInt(e.target.value) });
+      if (ledSuppressProgrammaticBrightness) return;
+      await sendLed({ brightness: parseInt(e.target.value, 10) });
     });
 
     let korvoMic = null;
@@ -687,6 +989,55 @@
       const slash = v.indexOf('/');
       if (slash >= 0) v = v.slice(0, slash);
       return v.trim();
+    }
+
+    function _isIpv4Host(host) {
+      const v = _normalizeBoardHost(host);
+      if (!v || v.includes(':')) return false;
+      const parts = v.split('.');
+      if (parts.length !== 4) return false;
+      for (const p of parts) {
+        if (!/^\d+$/.test(p)) return false;
+        const n = Number(p);
+        if (!Number.isInteger(n) || n < 0 || n > 255) return false;
+      }
+      return true;
+    }
+
+    /** After one mDNS resolution, cache numeric STA IP so LED/audio calls avoid repeated .local delays. */
+    function korvoApplyBoardHost(ip) {
+      const v = _normalizeBoardHost(ip);
+      if (!_isIpv4Host(v)) return false;
+      espIp = v;
+      const el = document.getElementById('espIpInput');
+      if (el) el.value = v;
+      const bi = document.getElementById('boardIp');
+      if (bi) bi.value = v;
+      try {
+        localStorage.setItem('korvo_esp_ip', v);
+        localStorage.setItem('korvo_board_ip', v);
+      } catch (e) {}
+      return true;
+    }
+
+    async function korvoDiscoverStaIpFromBoard() {
+      if (_isIpv4Host(espIp)) return;
+      let probeHost = _normalizeBoardHost(espIp);
+      if (!probeHost) {
+        probeHost = _normalizeBoardHost(document.getElementById('boardIp').value) || 'korvo.local';
+      }
+      const url = 'http://' + probeHost + '/api/network/status';
+      try {
+        const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(15000) });
+        if (!res.ok) return;
+        const data = await res.json();
+        const sta = data && data.sta_ip != null ? String(data.sta_ip).trim() : '';
+        if (_isIpv4Host(sta)) {
+          korvoApplyBoardHost(sta);
+        }
+      } catch (e) {
+        /* Offline or mDNS slow — keep hostname */
+      }
     }
 
     function _boardStreamUrl() {
@@ -866,7 +1217,12 @@
       statusEl.textContent = 'Connecting… ' + playUrl;
       korvoMic = new KorvoLiveMic();
       try {
+        const playbackGain =
+          typeof window.getBoardOutputVolumeLinear === 'function'
+            ? window.getBoardOutputVolumeLinear()
+            : 1;
         await korvoMic.start(playUrl, {
+          playbackGain: playbackGain,
           onStatus: (s) => { statusEl.textContent = s; },
           onEnded: () => {
             korvoMic = null;
@@ -945,6 +1301,7 @@
       if (espIp) bi.value = espIp;
       else if (savedBoard) bi.value = savedBoard;
       else bi.value = 'korvo.local';
+      await korvoDiscoverStaIpFromBoard();
       if (espIp) checkLedBoard();
     }
 
@@ -977,10 +1334,24 @@
     }
 
     // ─── Init ───
+    window.toggleAudioStream = toggleAudioStream;
+    window.toggleLiveTranscribe = toggleLiveTranscribe;
+    window._boardStreamUrl = _boardStreamUrl;
+    window.__korvoApplyLiveMicGain = function () {
+      if (!korvoMic || typeof korvoMic.setPlaybackGain !== 'function') return;
+      const g =
+        typeof window.getBoardOutputVolumeLinear === 'function'
+          ? window.getBoardOutputVolumeLinear()
+          : 1;
+      korvoMic.setPlaybackGain(g);
+    };
+
     korvoInitTabs();
     loadWifi();
     bootstrapAfterSettings();
     loadPorts();
+    if (typeof initAudioSection === 'function') initAudioSection();
+    if (typeof initBluetoothSection === 'function') initBluetoothSection();
     if (typeof initTranslationSection === 'function') initTranslationSection();
     if (typeof initThirdPartySection === 'function') initThirdPartySection();
   

@@ -11,12 +11,26 @@
     constructor() {
       this._ctx = null;
       this._proc = null;
+      this._gain = null;
       this._abort = null;
       this._pcmF = new Float32Array(PCM_RATE * 4);
       this._pcmLen = 0;
       this._readPos = 0;
       this._hdrRemain = WAV_HDR;
       this._pending = new Uint8Array(0);
+    }
+
+    /**
+     * Browser playback loudness (0–1). Does not change the board; use dashboard POST for device volume.
+     * @param {number} linear 0..1
+     */
+    setPlaybackGain(linear) {
+      let g = Number(linear);
+      if (!Number.isFinite(g)) g = 1;
+      g = Math.min(1, Math.max(0, g));
+      if (this._gain) {
+        this._gain.gain.value = g;
+      }
     }
 
     _appendPending(u8) {
@@ -82,8 +96,7 @@
 
     /**
      * @param {string} url  relay or direct board stream
-     * @param {{ onStatus?: (s: string) => void, onEnded?: () => void }} opts
-     *   onEnded: after normal end, error, or abort (not called if stop() cleared the callback first)
+     * @param {{ onStatus?: (s: string) => void, onEnded?: (() => void), playbackGain?: number }} opts
      */
     async start(url, opts) {
       opts = opts || {};
@@ -97,24 +110,47 @@
       this._abort = new AbortController();
       this._ctx = new AudioContext();
       const proc = this._ctx.createScriptProcessor(2048, 0, 1);
+      this._gain = this._ctx.createGain();
+      const pg =
+        typeof opts.playbackGain === "number" && Number.isFinite(opts.playbackGain)
+          ? Math.min(1, Math.max(0, opts.playbackGain))
+          : 1;
+      this._gain.gain.value = pg;
       proc.onaudioprocess = (ev) => {
         const out = ev.outputBuffer.getChannelData(0);
         this._readInterp(out);
       };
-      proc.connect(this._ctx.destination);
+      proc.connect(this._gain);
+      this._gain.connect(this._ctx.destination);
       this._proc = proc;
       if (this._ctx.state === "suspended") await this._ctx.resume();
-      onStatus(`AudioContext ${this._ctx.sampleRate} Hz — 16 kHz mono PCM (resampled)`);
+      onStatus(`AudioContext ${this._ctx.sampleRate} Hz — connecting…`);
 
-      const pump = async () => {
+      let res;
+      try {
+        res = await fetch(url, {
+          signal: this._abort.signal,
+          cache: "no-store",
+          headers: { Accept: "audio/wav,*/*" },
+        });
+      } catch (e) {
+        const msg = e && e.name === "AbortError" ? "Stopped" : String(e && e.message ? e.message : e);
+        await this.stop();
+        throw new Error(msg);
+      }
+      if (!res.ok) {
+        await this.stop();
+        throw new Error("HTTP " + res.status);
+      }
+      if (!res.body) {
+        await this.stop();
+        throw new Error("No response body");
+      }
+      onStatus(`Streaming (${this._ctx.sampleRate} Hz resampled)`);
+
+      const reader = res.body.getReader();
+      void (async () => {
         try {
-          const res = await fetch(url, {
-            signal: this._abort.signal,
-            cache: "no-store",
-            headers: { Accept: "audio/wav,*/*" },
-          });
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          const reader = res.body.getReader();
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -137,8 +173,7 @@
             } catch (_) {}
           }
         }
-      };
-      pump();
+      })();
     }
 
     async stop() {
@@ -155,6 +190,12 @@
         } catch (_) {}
         this._proc.onaudioprocess = null;
         this._proc = null;
+      }
+      if (this._gain) {
+        try {
+          this._gain.disconnect();
+        } catch (_) {}
+        this._gain = null;
       }
       if (this._ctx) {
         try {

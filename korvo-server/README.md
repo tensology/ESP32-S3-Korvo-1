@@ -1,6 +1,6 @@
 # Korvo Server
 
-FastAPI replacement for the old Node `korvo-config-server`: WiFi DB, config generation, build/flash SSE, OpenRouter proxy, optional audio relay.
+FastAPI replacement for the old Node `korvo-config-server`: WiFi DB, config generation, build/flash SSE, OpenRouter proxy, optional audio relay, **translation + TTS**, and **live Whisper transcription**.
 
 ## Setup (virtualenv `korvo`)
 
@@ -25,6 +25,13 @@ Or: `python -m korvo_server.main` if you add a `__main__.py` — use `uvicorn` a
 
 Open `http://localhost:3333/`.
 
+## Dashboard (recent UI notes)
+
+- **Header / tabs:** The rule under “Korvo Config” sits close to the tab row (small top padding on the tab bar) so the layout stays compact.
+- **Build & Flash:** The card title and the terminal window title include a **hammer** icon; the live log title is `korvo — build & flash`.
+- **Audio:** **Listen** (board mic stream + relay) and **Push audio** are separate cards. **Playback volume** is its own panel **between** them: one slider for browser listen level, PCM/file gain sent from the page, and (when the browser can reach the board) `POST /api/audio/output-volume`. The push section refers to that panel for level.
+- **Translation:** Auto-transcribe uses the same Whisper WebSocket as the ASR tab (`step_sec` / `window_sec` / model from the **Live transcript** controls). For lower latency, try **Step seconds** around `1.0` (more CPU). A hint is shown on the Translation tab.
+
 ## Audio relay
 
 Same-origin low-latency playback from the dashboard can use:
@@ -48,6 +55,32 @@ Endpoint (for custom clients):
 Models use short ids (`base.en`, `small`, …); weights are downloaded on first use (often `~/Library/Application Support/pywhispercpp/models/` on macOS, or `~/.local/share/pywhispercpp/models/` on Linux).
 
 This is **chunked** transcription (sliding window), not whisper.cpp’s low-latency stream API, but it works with the Korvo infinite HTTP WAV stream without extra firmware.
+
+**Sentence endpointing (server):** Final “sentences” for the UI are emitted when (a) a **delta** ends with sentence-ending punctuation, or (b) **VAD** sees enough consecutive low-energy steps after speech (**`vad_silence_chunks`**, tuned for short pauses). After long silence, a **`silence_clear`** message resets stale line state; the Translation tab’s auto-queue is cleared on that event so old phrases are not translated after you’ve stopped talking.
+
+**Echo guard:** While the board (or local Mac) plays TTS from the translation path, the transcribe pipeline can **suppress** ingesting that audio for ASR so the mic stream is not re-transcribed as speech. Suppression uses a short tail after each played chunk.
+
+**Concurrency:** Whisper inference uses a **global asyncio lock** across all `/ws/audio/transcribe` clients so only one decode runs at a time.
+
+## Translation & TTS (`POST /api/translate/google`)
+
+The **Translation** tab calls **`POST /api/translate/google`** (Google Translate `gtx` client) and optionally speaks the **target** text with **Kokoro** (default) or **AWS Polly** if enabled in settings.
+
+| `playback_target` | Behavior |
+|---------------------|----------|
+| **`board_inject`** | After the JSON response returns, TTS runs in a **background task**: Kokoro/Polly → WAV → FFmpeg to s16le → **`POST`** chunks to **`http://<board>/api/audio/inject`**. Long text can be split into multiple phrases. |
+| **`server_local`** | Same background pattern: synthesize then **`afplay`** on the Mac (POSIX). Does **not** block the HTTP response on synthesis or playback. |
+
+**Timeouts:** The Google Translate client uses a **60s** overall timeout (**15s** connect). The board inject client uses **90s** read/write per chunk (**15s** connect) so slow Wi‑Fi or a busy ESP is less likely to abort mid-stream.
+
+**Logs:** See **`logs/translation_tts_compare.jsonl`** below.
+
+## Logs (`logs/` under this directory)
+
+- **`translation_tts_compare.jsonl`** — One JSON object per **translate request** (source/target text, `speak_done` / `speak_pending` / `speak_error` at response time).  
+  Background TTS **completion** appends extra lines with **`"event": "board_inject_done"`** or **`"server_local_done"`**, plus **`ok`**, **`elapsed_sec`**, and on failure an **`error`** snippet. That way you can tell when Kokoro + inject actually finished, not only when the API returned.
+
+Server stdout also logs `board_inject_tts_finished` / `server_local_tts_finished` at **INFO** when background audio completes.
 
 ## Record board audio to disk (VLC / monitoring)
 

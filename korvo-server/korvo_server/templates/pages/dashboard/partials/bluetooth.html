@@ -1,6 +1,44 @@
 <div class="tab-panel" role="tabpanel" id="tab-bluetooth" aria-labelledby="tabbtn-bluetooth">
-    <div class="card">
-      <h2><span class="icon">🟦</span> Bluetooth</h2>
-      <p style="font-size:1rem;opacity:0.9;line-height:1.5;margin:0;">Coming soon.</p>
+  <div class="card bt-card">
+    <h2>
+      <span class="icon">🟦</span> Bluetooth output
+      <span class="badge disconnected" id="btStatusBadge">Idle</span>
+    </h2>
+    <p class="bt-intro">Connect the board to a Bluetooth speaker/headphones. Step 1: start scan. Step 2: choose a device from the list and press Connect.</p>
+
+    <div class="bt-toolbar">
+      <button class="btn-primary" id="btFindBtn" onclick="btToggleFinding()">Start scan</button>
+      <button class="btn-secondary" id="btRefreshBtn" onclick="btRefreshDevices()">Refresh list</button>
     </div>
+
+    <div class="bt-summary-grid">
+      <div class="field">
+        <label>Current output device</label>
+        <input id="btConnectedTarget" readonly value="Not connected yet">
+      </div>
+      <div class="field">
+        <label>Preferred device (used for auto reconnect)</label>
+        <input id="btPreferredTarget" readonly value="No preferred device set">
+      </div>
     </div>
+
+    <div class="bt-auto-row">
+      <input type="checkbox" id="btAutoReconnectToggle">
+      <label for="btAutoReconnectToggle">Auto reconnect to preferred device on boot</label>
+    </div>
+
+    <div class="bt-devices-wrap">
+      <div class="bt-devices-head">
+        <label>Visible devices list</label>
+        <span id="btDeviceCount" class="bt-device-count">0 devices</span>
+      </div>
+      <div id="btDeviceList" class="bt-device-list" role="list" aria-label="Visible bluetooth devices"></div>
+      <p class="bt-devices-help">Tip: if this list stays empty, press Start scan and wait a few seconds.</p>
+    </div>
+
+    <div class="bt-danger-row">
+      <button class="btn-secondary" id="btDisconnectBtn" onclick="btDisconnectDevice()">Disconnect current device</button>
+      <button class="btn-secondary" id="btForgetBtn" onclick="btForgetPreferred()">Forget preferred device</button>
+    </div>
+  </div>
+</div>

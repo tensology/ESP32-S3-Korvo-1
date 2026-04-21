@@ -70,6 +70,6 @@ Korvo/
 ## Documentation map
 
 - **Product + firmware deep dive:** [`korvo-app/README.md`](korvo-app/README.md)
-- **Server APIs, audio relay, Whisper WebSocket, DB paths:** [`korvo-server/README.md`](korvo-server/README.md)
+- **Server APIs, audio relay, Whisper WebSocket, translation/TTS, logs, DB paths:** [`korvo-server/README.md`](korvo-server/README.md)
 
 Upstream hardware and speech stacks live in Espressif’s **[ESP-Skainet](https://github.com/espressif/esp-skainet)** and **[ESP-SR](https://github.com/espressif/esp-sr)** repos; this toolkit wires a concrete board + a local dev server around them.

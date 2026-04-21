@@ -1,1 +1,90 @@
 /* bluetooth section styles (modularized) */
+
+.bt-intro {
+  font-size: 0.86rem;
+  opacity: 0.82;
+  line-height: 1.45;
+  margin: 0 0 0.8rem;
+}
+
+.bt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.85rem;
+}
+
+.bt-status-text {
+  font-size: 0.8rem;
+  opacity: 0.88;
+}
+
+.bt-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 0.55rem;
+}
+
+.bt-auto-row {
+  margin-bottom: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 42px;
+}
+
+.bt-auto-row input {
+  width: auto;
+}
+
+.bt-auto-row label {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.bt-devices-wrap {
+  margin-bottom: 0.75rem;
+}
+
+.bt-devices-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.bt-device-count {
+  font-size: 0.76rem;
+  color: #888;
+}
+
+.bt-device-list {
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #0a0a0a;
+  min-height: 160px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 0.35rem;
+}
+
+.bt-devices-help {
+  margin: 0.45rem 0 0;
+  font-size: 0.75rem;
+  color: #8a8a8a;
+}
+
+.bt-danger-row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .bt-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

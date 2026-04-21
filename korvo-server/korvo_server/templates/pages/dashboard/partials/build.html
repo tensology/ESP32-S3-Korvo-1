@@ -1,38 +1,38 @@
 <div class="tab-panel" role="tabpanel" id="tab-build" aria-labelledby="tabbtn-build">
     <!-- Build & Flash -->
-    <div class="card">
-      <h2>
-        <span class="icon">🔨</span> Build & Flash
-        <span class="badge" id="flashBadge" style="display:none"></span>
-      </h2>
-      <div class="row">
-        <div class="field">
-          <label>Serial port (flash only — <code>idf.py build</code> does not use this). If you have two USB-UART cables, pick the one on the Korvo you are watching; the list prefers <code>usbserial</code> over <code>SLAB</code>.</label>
-          <select id="serialPort"></select>
+    <div class="card build-card">
+      <h2><span class="icon" aria-hidden="true">🔨</span> Build & Flash</h2>
+      <p class="build-intro">Compile Korvo firmware on this Mac and flash over USB. Pick the serial port that matches your board.</p>
+
+      <div class="build-section">
+        <div class="build-port-toolbar">
+          <label for="serialPort" class="build-port-label">Serial port</label>
+          <select id="serialPort" class="build-port-select" aria-describedby="buildSerialHint"></select>
+          <button type="button" class="btn-secondary build-port-refresh" onclick="loadPorts()">Refresh ports</button>
         </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <button class="btn-secondary" onclick="loadPorts()">Refresh Ports</button>
-        </div>
+        <p class="build-hint" id="buildSerialHint">Flash only — <code>idf.py build</code> does not use the port. If you have two USB-UART cables, choose the one on the Korvo you are flashing (the list prefers <code>usbserial</code> over <code>SLAB</code>).</p>
       </div>
-      <div class="field" style="margin-bottom:0.75rem">
-        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-weight:normal">
-          <input type="checkbox" id="flashCleanBefore" style="width:auto">
-          Ninja clean before build (full recompile — use when the UI builds instantly but you expect a long compile)
+
+      <div class="build-section build-section--tight">
+        <label class="build-checkbox">
+          <input type="checkbox" id="flashCleanBefore">
+          <span>Ninja clean before build (full recompile — use when builds finish instantly but you expect a long compile)</span>
         </label>
       </div>
-      <div class="btn-row">
-        <button class="btn-primary" onclick="buildAndFlash()" id="flashBtn">🔨 Build & Flash to Board</button>
+
+      <div class="build-flash-cta">
+        <button type="button" class="btn-primary flash-action-btn" onclick="buildAndFlash()" id="flashBtn">Build & Flash to Board</button>
       </div>
-      <p style="font-size:0.75rem;opacity:0.7;margin:0.4rem 0 0.8rem;line-height:1.35;">Runs on this Mac (same as terminal). If this hangs or shows nothing, open <a href="/api/flash/diag" target="_blank" rel="noopener">/api/flash/diag</a> — <code>idf_py</code> must be non-empty.</p>
+      <p class="build-footnote">Runs on this Mac (same as a local terminal). If output hangs or stays empty, open <a href="/api/flash/diag" target="_blank" rel="noopener">/api/flash/diag</a> — <code>idf_py</code> must be non-empty.</p>
 
       <!-- Live Terminal -->
-      <div class="terminal" id="terminal">
+      <div class="terminal terminal--build" id="terminal">
         <div class="terminal-bar">
           <span class="terminal-dot red"></span>
           <span class="terminal-dot yellow"></span>
           <span class="terminal-dot green"></span>
-          <span id="terminalTitle">korvo — build & flash</span>
+          <span id="terminalTitle"><span class="terminal-title-ico" aria-hidden="true">🔨</span> korvo — build & flash</span>
+          <button class="btn-secondary terminal-copy-btn" type="button" onclick="copyBuildTerminalOutput()">Copy</button>
         </div>
         <div class="terminal-output" id="terminalOutput"></div>
       </div>

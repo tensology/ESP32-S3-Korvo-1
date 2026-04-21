@@ -9,10 +9,72 @@
   let translationAutoBusy = false;
   let translationAutoLastQueuedSentence = '';
   let translationAutoLastSentenceId = 0;
-  let translationAutoPreviewMode = 'stable';
+  /** Show Whisper partials in the auto-transcribe line (same fluidity as the ASR tab). */
+  let translationAutoPreviewMode = 'live_partial';
+  let translationAutoStartedListen = false;
 
   function translationStatusEl() {
     return document.getElementById('translationStatus');
+  }
+
+  /** server_local = Kokoro + afplay on the Mac; board_inject = stream to ESP32 */
+  function ttsPlaybackLabel(data) {
+    return data && data.playback_target === 'server_local' ? 'this Mac' : 'device';
+  }
+
+  function normalizeBoardHost(raw) {
+    let v = String(raw || '').trim();
+    if (!v) return '';
+    v = v.replace(/^https?:\/\//i, '');
+    const slash = v.indexOf('/');
+    if (slash >= 0) v = v.slice(0, slash);
+    return v.trim();
+  }
+
+  /** Same LAN URL the server uses to POST /api/audio/inject (prefers #boardIp, else saved WiFi / board IP). */
+  function boardBaseUrl() {
+    let host = '';
+    const ipEl = document.getElementById('boardIp');
+    if (ipEl && ipEl.value && ipEl.value.trim()) {
+      host = ipEl.value.trim();
+    } else {
+      try {
+        host = (localStorage.getItem('korvo_board_ip') || localStorage.getItem('korvo_esp_ip') || '').trim();
+      } catch (_) {
+        host = '';
+      }
+    }
+    host = normalizeBoardHost(host);
+    if (!host) return '';
+    return `http://${host}`;
+  }
+
+  function ensureBoardIpFieldFromStorage() {
+    const ipEl = document.getElementById('boardIp');
+    if (!ipEl) return;
+    const cur = (ipEl.value || '').trim();
+    if (cur) return;
+    try {
+      const s = (localStorage.getItem('korvo_board_ip') || localStorage.getItem('korvo_esp_ip') || '').trim();
+      if (s) {
+        const n = normalizeBoardHost(s);
+        ipEl.value = n || s;
+      }
+    } catch (_) {}
+  }
+
+  /** Apply Audio-tab output volume to the ESP immediately so TTS is not silent if the slider never POSTed. */
+  async function flushBoardPlaybackVolumeIfPossible() {
+    const base = boardBaseUrl();
+    if (!base || typeof window.getBoardOutputVolumePercent !== 'function') return;
+    const pct = window.getBoardOutputVolumePercent();
+    try {
+      await fetch(`${base}/api/audio/output-volume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ volume: pct }),
+      });
+    } catch (_) {}
   }
 
   async function saveTranslationSettings() {
@@ -59,6 +121,7 @@
       status.dataset.init = '1';
       if (!status.textContent.trim()) status.textContent = 'Realtime Translation Coming Soon!';
     }
+    ensureBoardIpFieldFromStorage();
     setKokoroVoiceOptions(FALLBACK_KOKORO_VOICES, 'af_heart');
     loadKokoroVoices();
     bindTargetLanguageVoiceDefault();
@@ -163,6 +226,8 @@
     const kokoro_voice = (voiceEl.value || 'af_heart').trim();
     const speak_target = !!speakEl.checked;
     const text = (inEl.value || '').trim();
+    ensureBoardIpFieldFromStorage();
+    const board_url = boardBaseUrl();
     if (!text) {
       if (status) status.textContent = 'Add text to translate first.';
       if (typeof toast === 'function') toast('No text to translate', 'error');
@@ -175,6 +240,14 @@
     }
     outEl.value = '';
     if (status) status.textContent = 'Translating...';
+    if (speak_target && !board_url) {
+      if (status) status.textContent = 'Set board host on the Audio tab (or connect WiFi once so the IP is saved), then retry.';
+      if (typeof toast === 'function') toast('Set board host for device TTS', 'error');
+      return;
+    }
+    if (speak_target && board_url) {
+      await flushBoardPlaybackVolumeIfPossible();
+    }
     const res = await fetch('/api/translate/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -185,8 +258,11 @@
         speak_target,
         kokoro_voice,
         kokoro_speed: 1.0,
-        playback_target: 'server_local',
+        playback_target: speak_target ? 'board_inject' : 'server_local',
+        board_url,
         stream_key: (typeof _boardStreamUrl === 'function' ? (_boardStreamUrl() || '') : ''),
+        stream_volume: 1,
+        tts_sentence_stream: true,
       }),
     });
     if (!res.ok) {
@@ -216,11 +292,28 @@
         kokoro_voice,
         kokoro_lang: data.kokoro_lang || '',
         speak_done: !!data.speak_done,
+        speak_pending: !!data.speak_pending,
         speak_error: data.speak_error || '',
+        tts_board_chunks: data.tts_board_chunks,
       });
     } catch (_) {}
-    if (data.speak_target && data.speak_done) {
-      if (status) status.textContent = `Translated ${source_language} → ${target_language} and played on server host`;
+    if (data.speak_target && data.speak_pending) {
+      const n = Number(data.tts_board_chunks) || 0;
+      const where = ttsPlaybackLabel(data);
+      if (status) {
+        status.textContent =
+          n > 1
+            ? `Translated ${source_language} → ${target_language} · TTS starting on ${where} (${n} phrases, in background)`
+            : `Translated ${source_language} → ${target_language} · TTS starting on ${where} (in background)`;
+      }
+    } else if (data.speak_target && data.speak_done) {
+      const n = Number(data.tts_board_chunks) || 0;
+      const where = ttsPlaybackLabel(data);
+      if (n > 1) {
+        if (status) status.textContent = `Translated ${source_language} → ${target_language} · played on ${where} (${n} phrases)`;
+      } else if (status) {
+        status.textContent = `Translated ${source_language} → ${target_language} and played on ${where}`;
+      }
     } else if (data.speak_target && data.speak_error) {
       if (status) status.textContent = `Translated ${source_language} → ${target_language}, but speak failed: ${data.speak_error}`;
       if (typeof toast === 'function') toast('Speak target failed', 'error');
@@ -228,6 +321,31 @@
       if (status) status.textContent = `Translated ${source_language} → ${target_language}`;
     }
     if (typeof toast === 'function') toast('Translation complete');
+  }
+
+  async function copyTranslationOutput() {
+    const outEl = document.getElementById('translationOutputText');
+    const status = translationStatusEl();
+    const text = outEl ? String(outEl.value || '').trim() : '';
+    if (!text) {
+      if (status) status.textContent = 'Nothing to copy yet.';
+      if (typeof toast === 'function') toast('No translated output to copy', 'error');
+      return;
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else if (outEl) {
+        outEl.focus();
+        outEl.select();
+        document.execCommand('copy');
+      }
+      if (status) status.textContent = 'Translated output copied.';
+      if (typeof toast === 'function') toast('Output copied');
+    } catch (_) {
+      if (status) status.textContent = 'Copy failed. Select text manually.';
+      if (typeof toast === 'function') toast('Copy failed', 'error');
+    }
   }
 
   function translationAutoStatusEl() {
@@ -302,12 +420,35 @@
     const target_language = (tgtEl.value || 'ja').trim().toLowerCase();
     const kokoro_voice = (voiceEl.value || 'af_heart').trim();
     const speak_target = !!speakEl.checked;
+    ensureBoardIpFieldFromStorage();
+    const board_url = boardBaseUrl();
     inEl.value = text;
     if (status) status.textContent = 'Auto translating sentence...';
+    if (speak_target && !board_url) {
+      if (status) status.textContent = 'Set board host on the Audio tab (or save WiFi IP) so auto TTS can reach the ESP.';
+      return;
+    }
+    if (speak_target && board_url) {
+      await flushBoardPlaybackVolumeIfPossible();
+    }
+    const stream_key =
+      typeof _boardStreamUrl === 'function' ? (_boardStreamUrl() || '') : `${board_url.replace(/\/$/, '')}/api/audio/stream`;
     const res = await fetch('/api/translate/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, source_language, target_language, speak_target, kokoro_voice, kokoro_speed: 1.0, playback_target: 'server_local' }),
+      body: JSON.stringify({
+        text,
+        source_language,
+        target_language,
+        speak_target,
+        kokoro_voice,
+        kokoro_speed: 1.0,
+        playback_target: speak_target ? 'board_inject' : 'server_local',
+        board_url,
+        stream_key,
+        stream_volume: 1,
+        tts_sentence_stream: true,
+      }),
     });
     if (!res.ok) {
       const msg = await res.text();
@@ -317,13 +458,34 @@
     const data = await res.json();
     outEl.value = data.translated_text || '';
     inEl.value = '';
-    if (data.speak_target && data.speak_done) {
-      if (status) status.textContent = `Auto translated and played (${data.tts_vendor_used || 'kokoro'})`;
+    if (data.speak_target && data.speak_pending) {
+      const nc = Number(data.tts_board_chunks) || 0;
+      const where = ttsPlaybackLabel(data);
+      if (status) {
+        status.textContent =
+          nc > 1
+            ? `Auto translated · TTS streaming to ${where} (${nc} phrases, ${data.tts_vendor_used || 'kokoro'})`
+            : `Auto translated · TTS streaming to ${where} (${data.tts_vendor_used || 'kokoro'})`;
+      }
+    } else if (data.speak_target && data.speak_done) {
+      const nc = Number(data.tts_board_chunks) || 0;
+      const where = ttsPlaybackLabel(data);
+      if (nc > 1 && status) {
+        status.textContent = `Auto translated · played on ${where} (${nc} phrases, ${data.tts_vendor_used || 'kokoro'})`;
+      } else if (status) {
+        status.textContent = `Auto translated and played on ${where} (${data.tts_vendor_used || 'kokoro'})`;
+      }
     } else if (data.speak_target && data.speak_error) {
       if (status) status.textContent = `Auto translated, speak failed: ${data.speak_error}`;
     } else {
       if (status) status.textContent = 'Auto translated sentence.';
     }
+  }
+
+  function _audioLiveMicAlreadyOn() {
+    const b = document.getElementById('audioBtn');
+    const t = (b && b.textContent) ? b.textContent : '';
+    return /Stop\s+live\s+mic/i.test(t);
   }
 
   async function toggleTranslationAutoTranscribe() {
@@ -336,6 +498,12 @@
       translationAutoWs = null;
       btn.textContent = '▶️ Start auto transcribing';
       st.textContent = 'Off';
+      if (translationAutoStartedListen && typeof toggleAudioStream === 'function' && _audioLiveMicAlreadyOn()) {
+        try {
+          await toggleAudioStream();
+        } catch (_) {}
+      }
+      translationAutoStartedListen = false;
       return;
     }
     let streamUrl = '';
@@ -358,6 +526,19 @@
     translationAutoBusy = false;
     translationAutoLastQueuedSentence = '';
     translationAutoLastSentenceId = 0;
+    translationAutoStartedListen = false;
+    const listenCb = document.getElementById('translationListenBoard');
+    if (listenCb && listenCb.checked && typeof toggleAudioStream === 'function' && !_audioLiveMicAlreadyOn()) {
+      try {
+        await toggleAudioStream();
+        translationAutoStartedListen = _audioLiveMicAlreadyOn();
+        if (!translationAutoStartedListen && st) {
+          st.textContent = 'Mic playback failed — transcript only';
+        }
+      } catch (_) {
+        if (st) st.textContent = 'Mic playback failed — transcript only';
+      }
+    }
     live.textContent = 'Connecting…';
     st.textContent = 'Connecting…';
     translationAutoWs = new WebSocket(wsUrl);
@@ -381,11 +562,15 @@
         // Server-driven stale sentence reset after sustained silence.
         live.textContent = '…';
         translationAutoLastQueuedSentence = '';
+        translationAutoQueue = [];
       } else if (msg.type === 'partial') {
         if (translationAutoPreviewMode === 'live_partial') {
           const full = normalizeSnippet(msg.text || '');
+          const delta = normalizeSnippet(msg.delta != null ? String(msg.delta) : '');
+          const cleanDelta = sanitizeAsrChunk(delta);
           const cleanFull = sanitizeAsrChunk(full);
-          if (cleanFull && !shouldSkipAutoSentence(cleanFull)) live.textContent = cleanFull;
+          const show = cleanDelta || cleanFull;
+          if (show && !shouldSkipAutoSentence(show)) live.textContent = show;
         }
       } else if (msg.type === 'error') {
         st.textContent = `Error: ${msg.message || ''}`;
@@ -396,16 +581,23 @@
     translationAutoWs.onerror = () => {
       st.textContent = 'WebSocket error';
     };
-    translationAutoWs.onclose = () => {
+    translationAutoWs.onclose = async () => {
       translationAutoWs = null;
       btn.textContent = '▶️ Start auto transcribing';
       if (st.textContent === 'Live' || st.textContent.startsWith('Ready')) st.textContent = 'Off';
+      if (translationAutoStartedListen && typeof toggleAudioStream === 'function' && _audioLiveMicAlreadyOn()) {
+        try {
+          await toggleAudioStream();
+        } catch (_) {}
+      }
+      translationAutoStartedListen = false;
     };
   }
 
   window.saveTranslationSettings = saveTranslationSettings;
   window.initTranslationSection = initTranslationSection;
   window.translateTextGoogle = translateTextGoogle;
+  window.copyTranslationOutput = copyTranslationOutput;
   window.toggleTranslationAutoTranscribe = toggleTranslationAutoTranscribe;
 
   if (document.readyState === 'loading') {

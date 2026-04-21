@@ -1,1 +1,341 @@
 /* led section styles (modularized) */
+
+.led-toolbar--brightness {
+  min-width: 14rem;
+  flex: 1.1;
+  margin: 0;
+}
+
+.led-toolbar-brightness-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 0.35rem;
+}
+
+.led-brightness-range {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+}
+
+.led-section-label {
+  display: block;
+  font-size: 0.8rem;
+  color: #888;
+  margin: 0.85rem 0 0.45rem;
+}
+
+.led-hint {
+  font-weight: 400;
+  opacity: 0.75;
+  font-size: 0.72rem;
+}
+
+.led-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0;
+}
+
+.led-presets .btn-secondary {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.55rem;
+  font-size: 0.8rem;
+}
+
+.led-preset-emoji {
+  display: inline-block;
+  font-size: 1.18rem;
+  line-height: 1;
+  margin-right: 0.3rem;
+  vertical-align: -0.08em;
+}
+
+@media (max-width: 760px) {
+  .led-presets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.led-layout {
+  display: grid;
+  grid-template-columns: minmax(21.75rem, 0.9fr) minmax(26.25rem, 1.1fr);
+  grid-template-areas:
+    "presets ring"
+    "solid solid";
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.led-col {
+  min-width: 0;
+}
+
+.led-col-presets,
+.led-col-ring,
+.led-col-solid {
+  background: #0f0f0f;
+  border: 1px solid #232323;
+  border-radius: 10px;
+  padding: 0.8rem;
+}
+
+.led-col-presets {
+  grid-area: presets;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.led-col-presets > .led-section-label {
+  text-align: center;
+}
+
+.led-power-callout {
+  margin-bottom: 0.65rem;
+  padding: 0.55rem;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  background: #121212;
+}
+
+.led-power-callout .led-section-label {
+  margin-top: 0;
+  text-align: center;
+}
+
+.led-power-hero-btn {
+  width: 100%;
+  min-width: 0;
+  min-height: 3.25rem;
+}
+
+.led-col-ring {
+  grid-area: ring;
+}
+
+.led-col-solid {
+  grid-area: solid;
+}
+
+.led-col-solid > .led-section-label,
+.led-col-solid > .led-help {
+  text-align: center;
+}
+
+.led-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.4rem, 1fr));
+  gap: 0.45rem;
+  margin-bottom: 0.2rem;
+}
+
+.led-swatches .btn-secondary {
+  min-height: 2.35rem;
+  font-size: 0.78rem;
+}
+
+.led-color-input {
+  width: 100%;
+  max-width: 14rem;
+  height: 44px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid #333;
+  background: #0a0a0a;
+  cursor: pointer;
+}
+
+.led-help {
+  font-size: 0.72rem;
+  opacity: 0.78;
+  line-height: 1.45;
+  margin: 0.45rem 0 0;
+}
+
+.led-ring-help {
+  text-align: center;
+  position: relative;
+  top: -20px;
+  margin-bottom: -14px;
+}
+
+.led-ring {
+  --led-n: 12;
+  --ring-r: 7.9rem;
+  position: relative;
+  left: -24px;
+  top: -10px;
+  width: calc(var(--ring-r) * 2 + 6.2rem);
+  height: calc(var(--ring-r) * 2 + 6.2rem);
+  margin: 0.55rem auto 0.7rem;
+  box-sizing: border-box;
+}
+
+.led-ring-stage {
+  --ring-r: 7.9rem;
+  position: relative;
+  width: calc(var(--ring-r) * 2 + 8.8rem);
+  margin: 0.15rem auto 0.45rem;
+  min-height: calc(var(--ring-r) * 2 + 6.2rem);
+}
+
+/* Decorative center (does not capture clicks) */
+.led-ring::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 4.8rem;
+  height: 4.8rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #1e1e1e, #0a0a0a);
+  border: 1px solid #252525;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.led-ring-dot {
+  --i: 0;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  width: 1.55rem;
+  height: 1.55rem;
+  margin: -0.775rem;
+  border-radius: 50%;
+  border: 2px solid #3a3a3a;
+  padding: 0;
+  cursor: pointer;
+  background: #1a1a1a;
+  transform: rotate(calc((360deg / var(--led-n)) * var(--i))) translateY(calc(-1 * var(--ring-r)))
+    rotate(calc((-360deg / var(--led-n)) * var(--i)));
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.led-ring-dot:hover {
+  transform: rotate(calc((360deg / var(--led-n)) * var(--i))) translateY(calc(-1 * var(--ring-r)))
+    rotate(calc((-360deg / var(--led-n)) * var(--i))) scale(1.12);
+  z-index: 2;
+}
+
+.led-ring-dot:focus-visible {
+  outline: 2px solid #e74c3c;
+  outline-offset: 2px;
+}
+
+.led-ring-dot--off {
+  opacity: 1;
+  box-shadow: inset 0 0 0 1px #2b2b2b;
+}
+
+.led-ring-actions {
+  margin: 0.35rem auto 0;
+  width: calc(var(--ring-r) * 2 + 6.2rem);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.led-ring-actions > * {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.52rem;
+  height: 2.52rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.led-ring-actions .btn-secondary,
+.led-ring-actions .led-custom-picker-btn,
+.led-custom-picker-text {
+  text-align: center;
+  justify-content: center;
+}
+
+.led-custom-picker-btn {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  min-height: 2.52rem;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #222;
+  color: #ddd;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.led-custom-picker-text {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.led-color-input-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  border: 0;
+  border-radius: 8px;
+  opacity: 0;
+}
+
+.led-brightness-rail {
+  position: absolute;
+  right: 1.25rem;
+  top: calc(50% - 18px);
+  transform: translateY(-50%);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.led-brightness-value {
+  font-size: 0.76rem;
+  color: #888;
+  min-width: 2ch;
+  text-align: center;
+}
+
+.led-brightness-vertical {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 20px;
+  height: 205px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  accent-color: #e74c3c;
+  transform: scaleX(1.35);
+  transform-origin: center;
+}
+
+@media (max-width: 1200px) {
+  .led-layout {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "presets"
+      "ring"
+      "solid";
+  }
+}

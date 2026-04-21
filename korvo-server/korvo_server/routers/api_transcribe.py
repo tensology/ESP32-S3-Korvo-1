@@ -149,7 +149,9 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
     silence_streak = 0
     vad_voiced_rms = 0.012
     vad_voiced_chunks = 2
-    vad_silence_chunks = 5
+    # Fewer chunks → finalize sooner on short pauses (Whisper deltas often lack punctuation).
+    # At step_sec≈1.25s, 3 ≈ ~3.7s of sustained silence vs 5 ≈ ~6.2s before VAD endpoint.
+    vad_silence_chunks = 3
     # "Serious silence" gate to clear stale UI sentence on the frontend (server is source of truth).
     silence_clear_chunks = max(3, int(round(5.0 / step_sec)))
     # Hard utterance reset on prolonged silence to prevent stale sentence appends.
@@ -164,19 +166,23 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
         async for chunk in audio_hub.subscribe(board_url):
             if not _connected():
                 break
-            if is_suppressed(board_url):
-                # During local TTS playback/cooldown, skip ASR windows to prevent echo feedback loops.
-                last_window_transcript = ""
-                continue
+            # Always advance the WAV parser — skipping feed desyncs the stream and breaks ASR until reconnect.
             pcm = parser.feed(chunk)
             if pcm:
-                pcm_buf.extend(pcm)
-                if len(pcm_buf) > max_buf_bytes:
-                    del pcm_buf[: len(pcm_buf) - max_buf_bytes]
+                if is_suppressed(board_url):
+                    # Drop buffered tail so we do not transcribe TTS/echo; keep parser aligned to the live byte stream.
+                    last_window_transcript = ""
+                    pcm_buf.clear()
+                else:
+                    pcm_buf.extend(pcm)
+                    if len(pcm_buf) > max_buf_bytes:
+                        del pcm_buf[: len(pcm_buf) - max_buf_bytes]
             now = time.monotonic()
             if len(pcm_buf) < int(_BYTES_MONO_S16_1S * 0.9):
                 continue
             if now - last_run < step_sec:
+                continue
+            if is_suppressed(board_url):
                 continue
             last_run = now
             win = bytes(pcm_buf[-window_bytes:]) if len(pcm_buf) >= window_bytes else bytes(pcm_buf)

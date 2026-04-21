@@ -131,7 +131,7 @@ async def flash_stream(body: FlashBody, kdb: KorvoDep):
                         kdb.conn,
                         preserve_wifi_if_missing=not has_active_wifi(kdb.conn),
                     )
-                    yield send("output", {"text": "✅ Config generated", "source": "system"})
+                    yield send("output", {"text": "Config generated", "source": "system"})
                 except Exception as e:
                     yield send("output", {"text": f"❌ generateConfig: {e}", "source": "error"})
                     raise
@@ -139,24 +139,24 @@ async def flash_stream(body: FlashBody, kdb: KorvoDep):
             if body.clean_before_build:
                 ninja = Path(project_dir) / "build" / "build.ninja"
                 if ninja.is_file():
-                    yield send("phase", "🧹 ninja clean (forces full recompile)…")
+                    yield send("phase", "Ninja clean (full recompile)…")
                     async for line in _iter_bash_output(["-c", "ninja -C build clean"], project_dir, spawn_env):
                         yield send("output", {"text": line, "source": "stdout"})
-                    yield send("output", {"text": "✅ Clean finished — compiling from scratch", "source": "system"})
+                    yield send("output", {"text": "Clean finished — compiling from scratch", "source": "system"})
                 else:
                     yield send(
                         "output",
-                        {"text": "ℹ️ Skipping ninja clean (no build/ yet)", "source": "system"},
+                        {"text": "Skipping ninja clean (no build/ yet)", "source": "system"},
                     )
 
-            yield send("phase", "🔨 Building firmware...")
+            yield send("phase", "Building firmware…")
             async for line in _iter_bash_output([str(KORVO_IDF_SH), "build"], project_dir, spawn_env):
                 yield send("output", {"text": line, "source": "stdout"})
-            yield send("output", {"text": "✅ Build complete", "source": "system"})
+            yield send("output", {"text": "Build complete", "source": "system"})
 
             yield send("flash_start", {"port": port})
             yield send("output", {"text": f"→ Esptool will use ONLY this port: {port}", "source": "system"})
-            yield send("phase", "📡 Flashing firmware...")
+            yield send("phase", "Flashing firmware…")
 
             proc = await asyncio.create_subprocess_exec(
                 "/bin/bash",
@@ -203,7 +203,7 @@ async def flash_stream(body: FlashBody, kdb: KorvoDep):
             esp_tool = Path(idf_home) / "components" / "esptool_py" / "esptool" / "esptool.py"
             if esp_tool.is_file():
                 try:
-                    yield send("phase", "🔎 Post-flash: probe chip on selected port…")
+                    yield send("phase", "Post-flash: probe chip on selected port…")
                     async for line in _iter_bash_output(
                         ["-c", f'python3 "{esp_tool}" --chip auto -p "{port}" read_mac 2>&1'],
                         project_dir,
@@ -213,13 +213,13 @@ async def flash_stream(body: FlashBody, kdb: KorvoDep):
                 except Exception as e:
                     yield send(
                         "output",
-                        {"text": f"⚠️ Post-flash probe failed: {e} — wrong /dev/cu.* or port busy?", "source": "error"},
+                        {"text": f"Post-flash probe failed: {e} — wrong /dev/cu.* or port busy?", "source": "error"},
                     )
 
-            yield send("output", {"text": "✅ Flash complete!", "source": "system"})
+            yield send("output", {"text": "Flash complete", "source": "system"})
             yield send("complete", {"success": True, "message": "Firmware built & flashed successfully!"})
         except Exception as err:
-            yield send("output", {"text": f"❌ {err}", "source": "error"})
+            yield send("output", {"text": f"Error: {err}", "source": "error"})
             yield send("complete", {"success": False, "message": str(err)})
 
     return StreamingResponse(
