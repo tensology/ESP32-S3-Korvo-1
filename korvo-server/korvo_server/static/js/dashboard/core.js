@@ -640,10 +640,19 @@
     let transcribeWs = null;
     let transcribeAutoMic = false;
 
+    function _normalizeBoardHost(raw) {
+      let v = String(raw || '').trim();
+      if (!v) return '';
+      v = v.replace(/^https?:\/\//i, '');
+      const slash = v.indexOf('/');
+      if (slash >= 0) v = v.slice(0, slash);
+      return v.trim();
+    }
+
     function _boardStreamUrl() {
-      let boardIp = document.getElementById('boardIp').value.trim();
+      let boardIp = _normalizeBoardHost(document.getElementById('boardIp').value);
       if (!boardIp && typeof espIp !== 'undefined' && espIp) {
-        boardIp = espIp;
+        boardIp = _normalizeBoardHost(espIp);
         document.getElementById('boardIp').value = boardIp;
       }
       if (!boardIp) return '';
@@ -681,15 +690,14 @@
           await toggleAudioStream();
           transcribeAutoMic = !!korvoMic;
           if (!korvoMic) {
-            statusEl.textContent = 'Transcript started, but live audio could not start. Check Audio tab host/relay.';
+            statusEl.textContent = 'Live audio could not start; continuing with transcript only.';
             toast('Audio playback did not start', 'error');
-            return;
+            transcribeAutoMic = false;
           }
         } catch (e) {
           transcribeAutoMic = false;
-          statusEl.textContent = 'Could not start live audio playback.';
+          statusEl.textContent = 'Could not start live audio playback; continuing with transcript only.';
           toast('Live audio playback failed', 'error');
-          return;
         }
       } else {
         transcribeAutoMic = false;
@@ -709,6 +717,7 @@
       live.textContent = '…';
       roll.textContent = '';
       window._korvoTranscribeAccum = '';
+      let wsGotReady = false;
       transcribeWs = new WebSocket(wsUrl);
       transcribeWs.onopen = () => {
         badge.className = 'badge scanning';
@@ -723,6 +732,7 @@
           return;
         }
         if (msg.type === 'ready') {
+          wsGotReady = true;
           badge.className = 'badge connected';
           badge.textContent = 'Live';
           btn.innerHTML = '⏹ Stop transcript';
@@ -771,6 +781,9 @@
         btn.innerHTML = '▶️ Start live transcript';
         badge.className = 'badge disconnected';
         badge.textContent = 'Off';
+        if (!wsGotReady && (!statusEl.textContent || statusEl.textContent === 'Connecting…')) {
+          statusEl.textContent = 'Transcript connection closed before ready. Check Whisper install and board stream URL.';
+        }
         if (transcribeAutoMic && korvoMic) {
           korvoMic.stop().catch(() => {});
           korvoMic = null;
@@ -787,9 +800,9 @@
         alert('Missing /static/mic_stream.js — restart korvo-server.');
         return;
       }
-      let boardIp = document.getElementById('boardIp').value.trim();
+      let boardIp = _normalizeBoardHost(document.getElementById('boardIp').value);
       if (!boardIp && espIp) {
-        boardIp = espIp;
+        boardIp = _normalizeBoardHost(espIp);
         document.getElementById('boardIp').value = boardIp;
       }
       if (!boardIp) {
@@ -871,8 +884,9 @@
     setInterval(() => { if (espIp) checkLedBoard(); }, 5000);
 
     document.getElementById('espIpInput').addEventListener('change', function() {
-      const v = this.value.trim();
+      const v = _normalizeBoardHost(this.value);
       if (!v) return;
+      this.value = v;
       espIp = v;
       localStorage.setItem('korvo_esp_ip', v);
       checkLedBoard();
@@ -887,7 +901,7 @@
           localStorage.setItem('korvo_board_ip', this.value.trim());
         });
       }
-      const savedBoard = (localStorage.getItem('korvo_board_ip') || '').trim();
+      const savedBoard = _normalizeBoardHost(localStorage.getItem('korvo_board_ip') || '');
       if (espIp) bi.value = espIp;
       else if (savedBoard) bi.value = savedBoard;
       else bi.value = 'korvo.local';
@@ -912,7 +926,7 @@
       document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => korvoSwitchTab(btn.getAttribute('data-tab')));
       });
-      const valid = ['wifi', 'settings', 'led', 'build', 'audio', 'transcript', 'translation', 'docs'];
+      const valid = ['wifi', 'bluetooth', 'settings', 'led', 'build', 'audio', 'transcript', 'translation', 'docs'];
       let t = '';
       try {
         t = (localStorage.getItem('korvo_dashboard_tab') || '').trim();

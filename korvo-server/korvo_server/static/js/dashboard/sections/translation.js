@@ -13,6 +13,21 @@
       if (status) status.textContent = 'Please add an AssemblyAI API key.';
       return;
     }
+    if (/\s/.test(key)) {
+      if (status) status.textContent = 'AssemblyAI API key cannot contain spaces.';
+      if (typeof toast === 'function') toast('Invalid AssemblyAI key format', 'error');
+      return;
+    }
+    if (key.length < 20) {
+      if (status) status.textContent = 'AssemblyAI API key looks too short.';
+      if (typeof toast === 'function') toast('AssemblyAI key looks invalid', 'error');
+      return;
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(key)) {
+      if (status) status.textContent = 'AssemblyAI API key has invalid characters.';
+      if (typeof toast === 'function') toast('Invalid AssemblyAI key format', 'error');
+      return;
+    }
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

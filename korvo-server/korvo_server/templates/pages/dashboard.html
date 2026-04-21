@@ -6,6 +6,7 @@
   <title>Korvo Server</title>
   <link rel="stylesheet" href="/static/css/dashboard/core.css">
   <link rel="stylesheet" href="/static/css/dashboard/sections/wifi.css">
+  <link rel="stylesheet" href="/static/css/dashboard/sections/bluetooth.css">
   <link rel="stylesheet" href="/static/css/dashboard/sections/settings.css">
   <link rel="stylesheet" href="/static/css/dashboard/sections/led.css">
   <link rel="stylesheet" href="/static/css/dashboard/sections/build.css">
@@ -26,6 +27,7 @@
 
     <nav class="tab-bar" role="tablist" aria-label="Dashboard sections">
       <button type="button" class="tab-btn active" role="tab" id="tabbtn-wifi" aria-selected="true" aria-controls="tab-wifi" data-tab="wifi"><span class="tab-ico" aria-hidden="true">📶</span>WiFi</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-bluetooth" aria-selected="false" aria-controls="tab-bluetooth" data-tab="bluetooth"><span class="tab-ico" aria-hidden="true">🟦</span>Bluetooth</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-settings" aria-selected="false" aria-controls="tab-settings" data-tab="settings"><span class="tab-ico" aria-hidden="true">⚙️</span>Settings</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-led" aria-selected="false" aria-controls="tab-led" data-tab="led"><span class="tab-ico" aria-hidden="true">💡</span>LED</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-build" aria-selected="false" aria-controls="tab-build" data-tab="build"><span class="tab-ico" aria-hidden="true">🔨</span>Build</button>
@@ -36,6 +38,7 @@
     </nav>
 
     {% include "pages/dashboard/partials/wifi.html" %}
+    {% include "pages/dashboard/partials/bluetooth.html" %}
     {% include "pages/dashboard/partials/settings.html" %}
     {% include "pages/dashboard/partials/led.html" %}
     {% include "pages/dashboard/partials/build.html" %}
@@ -50,6 +53,7 @@
   <script src="/static/mic_stream.js"></script>
   <script src="/static/js/dashboard/core.js"></script>
   <script src="/static/js/dashboard/sections/wifi.js"></script>
+  <script src="/static/js/dashboard/sections/bluetooth.js"></script>
   <script src="/static/js/dashboard/sections/settings.js"></script>
   <script src="/static/js/dashboard/sections/led.js"></script>
   <script src="/static/js/dashboard/sections/build.js"></script>
