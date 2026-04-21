@@ -8,7 +8,7 @@ from korvo_server.config import DB_PATH, PORT, RECORDINGS_DIR, SERVER_ROOT
 from korvo_server.config_gen import generate_config, has_active_wifi
 from korvo_server.db import KorvoDB
 from korvo_server.flash_env import get_flash_spawn_env
-from korvo_server.routers import api_agent, api_audio, api_flash, api_networks, api_pages, api_ports, api_settings, api_transcribe, api_wifi
+from korvo_server.routers import api_agent, api_audio, api_flash, api_networks, api_pages, api_ports, api_settings, api_transcribe, api_translation, api_wifi
 
 
 @asynccontextmanager
@@ -56,6 +56,7 @@ for r in (
     api_ports.router,
     api_flash.router,
     api_agent.router,
+    api_translation.router,
     api_audio.router,
     api_transcribe.router,
 ):

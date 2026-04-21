@@ -1,12 +1,56 @@
 <div class="tab-panel" role="tabpanel" id="tab-translation" aria-labelledby="tabbtn-translation">
     <div class="card">
       <h2><span class="icon">🌐</span> Realtime Translation</h2>
-      <p style="font-size:0.9rem;opacity:0.86;line-height:1.45;margin:0 0 0.75rem;">Add an AssemblyAI API key to enable translation features when this tab goes live.</p>
-      <div class="field" style="max-width:30rem;">
-        <label style="font-size:0.8rem;">AssemblyAI API Key</label>
-        <input type="password" id="assemblyAiApiKey" placeholder="Paste AssemblyAI key (saved in SQLite)">
+      <p style="font-size:0.86rem;opacity:0.82;line-height:1.45;margin:0 0 0.75rem;">Quick text translation via Google. Default source: English (<code>en</code>) → target: Japanese (<code>ja</code>).</p>
+      <div class="row" style="margin-bottom:0.65rem;">
+        <div class="field">
+          <label style="font-size:0.8rem;">Source language</label>
+          <select id="translationSourceLang">
+            <option value="en" selected>English</option>
+            <option value="ja">Japanese</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="it">Italian</option>
+            <option value="pt">Portuguese</option>
+            <option value="ko">Korean</option>
+            <option value="zh-cn">Chinese (Simplified)</option>
+            <option value="zh-tw">Chinese (Traditional)</option>
+            <option value="ar">Arabic</option>
+            <option value="hi">Hindi</option>
+            <option value="ru">Russian</option>
+          </select>
+        </div>
+        <div class="field">
+          <label style="font-size:0.8rem;">Target language</label>
+          <select id="translationTargetLang">
+            <option value="ja" selected>Japanese</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="it">Italian</option>
+            <option value="pt">Portuguese</option>
+            <option value="ko">Korean</option>
+            <option value="zh-cn">Chinese (Simplified)</option>
+            <option value="zh-tw">Chinese (Traditional)</option>
+            <option value="ar">Arabic</option>
+            <option value="hi">Hindi</option>
+            <option value="ru">Russian</option>
+          </select>
+        </div>
       </div>
-      <button class="btn-secondary" onclick="saveTranslationSettings()">Save AssemblyAI Key</button>
-      <p id="translationStatus" style="font-size:0.78rem;opacity:0.78;margin:0.65rem 0 0;line-height:1.35;">Realtime Translation Coming Soon!</p>
+      <div class="field" style="margin-bottom:0.65rem;">
+        <label style="font-size:0.8rem;">Text to translate</label>
+        <textarea id="translationInputText" placeholder="Type a sentence to translate..." style="width:100%;min-height:100px;padding:0.7rem 1rem;background:#0a0a0a;border:1px solid #333;border-radius:8px;color:#fff;font-size:0.9rem;outline:none;"></textarea>
+      </div>
+      <div style="text-align:center;margin-bottom:0.65rem;">
+        <button class="btn-primary" onclick="translateTextGoogle()">Translate</button>
+      </div>
+      <div class="field" style="margin-bottom:0.65rem;">
+        <label style="font-size:0.8rem;">Translated output</label>
+        <textarea id="translationOutputText" readonly placeholder="Translation appears here..." style="width:100%;min-height:100px;padding:0.7rem 1rem;background:#0a0a0a;border:1px solid #333;border-radius:8px;color:#fff;font-size:0.9rem;"></textarea>
+      </div>
+      <p id="translationStatus" style="font-size:0.78rem;opacity:0.78;margin:0.65rem 0 0;line-height:1.35;">Text translation ready. API keys are now managed in Third-Party tab.</p>
     </div>
     </div>

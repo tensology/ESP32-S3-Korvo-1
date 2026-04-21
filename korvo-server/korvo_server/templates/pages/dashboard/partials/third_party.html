@@ -1,0 +1,38 @@
+<div class="tab-panel" role="tabpanel" id="tab-third-party" aria-labelledby="tabbtn-third-party">
+  <div class="card">
+    <h2><span class="icon">🔐</span> Third-Party API Keys</h2>
+    <p style="font-size:0.9rem;opacity:0.86;line-height:1.45;margin:0 0 0.75rem;">Store vendor API keys in SQLite settings for integrations.</p>
+
+    <div class="row" style="margin-bottom:0.65rem;">
+      <div class="field">
+        <label style="font-size:0.8rem;">AssemblyAI API Key</label>
+        <input type="password" id="thirdPartyAssemblyAiApiKey" placeholder="AssemblyAI key">
+      </div>
+      <div class="field">
+        <label style="font-size:0.8rem;">OpenAI API Key</label>
+        <input type="password" id="thirdPartyOpenAiApiKey" placeholder="OpenAI key">
+      </div>
+    </div>
+
+    <div class="row" style="margin-bottom:0.65rem;">
+      <div class="field">
+        <label style="font-size:0.8rem;">Anthropic / Claude Code API Key</label>
+        <input type="password" id="thirdPartyAnthropicApiKey" placeholder="Anthropic key">
+      </div>
+      <div class="field">
+        <label style="font-size:0.8rem;">Google Gemini API Key</label>
+        <input type="password" id="thirdPartyGoogleGeminiApiKey" placeholder="Gemini key">
+      </div>
+    </div>
+
+    <div class="row" style="margin-bottom:0.65rem;">
+      <div class="field">
+        <label style="font-size:0.8rem;">ElevenLabs API Key</label>
+        <input type="password" id="thirdPartyElevenLabsApiKey" placeholder="ElevenLabs key">
+      </div>
+    </div>
+
+    <button class="btn-primary" onclick="saveThirdPartySettings()">Save API Keys</button>
+    <p id="thirdPartyStatus" style="font-size:0.78rem;opacity:0.78;margin:0.65rem 0 0;line-height:1.35;">API keys are saved to local SQLite settings.</p>
+  </div>
+</div>

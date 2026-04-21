@@ -150,6 +150,24 @@
       if (typeof data.assemblyai_api_key === 'string') {
         const aaiEl = document.getElementById('assemblyAiApiKey');
         if (aaiEl) aaiEl.value = data.assemblyai_api_key;
+        const thirdAaiEl = document.getElementById('thirdPartyAssemblyAiApiKey');
+        if (thirdAaiEl) thirdAaiEl.value = data.assemblyai_api_key;
+      }
+      if (typeof data.openai_api_key === 'string') {
+        const openaiEl = document.getElementById('thirdPartyOpenAiApiKey');
+        if (openaiEl) openaiEl.value = data.openai_api_key;
+      }
+      if (typeof data.anthropic_api_key === 'string') {
+        const anthropicEl = document.getElementById('thirdPartyAnthropicApiKey');
+        if (anthropicEl) anthropicEl.value = data.anthropic_api_key;
+      }
+      if (typeof data.google_gemini_api_key === 'string') {
+        const geminiEl = document.getElementById('thirdPartyGoogleGeminiApiKey');
+        if (geminiEl) geminiEl.value = data.google_gemini_api_key;
+      }
+      if (typeof data.elevenlabs_api_key === 'string') {
+        const elevenlabsEl = document.getElementById('thirdPartyElevenLabsApiKey');
+        if (elevenlabsEl) elevenlabsEl.value = data.elevenlabs_api_key;
       }
       let host = (data.esp_ip || '').trim();
       if (!host) host = (localStorage.getItem('korvo_esp_ip') || '').trim();
@@ -926,7 +944,7 @@
       document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => korvoSwitchTab(btn.getAttribute('data-tab')));
       });
-      const valid = ['wifi', 'bluetooth', 'settings', 'led', 'build', 'audio', 'transcript', 'translation', 'docs'];
+      const valid = ['wifi', 'bluetooth', 'settings', 'led', 'build', 'audio', 'transcript', 'translation', 'third-party', 'docs'];
       let t = '';
       try {
         t = (localStorage.getItem('korvo_dashboard_tab') || '').trim();
@@ -942,4 +960,5 @@
     bootstrapAfterSettings();
     loadPorts();
     if (typeof initTranslationSection === 'function') initTranslationSection();
+    if (typeof initThirdPartySection === 'function') initThirdPartySection();
   

@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/static/css/dashboard/sections/audio.css">
   <link rel="stylesheet" href="/static/css/dashboard/sections/transcript.css">
   <link rel="stylesheet" href="/static/css/dashboard/sections/translation.css">
+  <link rel="stylesheet" href="/static/css/dashboard/sections/third_party.css">
   <link rel="stylesheet" href="/static/css/dashboard/sections/docs.css">
 </head>
 <body>
@@ -34,6 +35,7 @@
       <button type="button" class="tab-btn" role="tab" id="tabbtn-audio" aria-selected="false" aria-controls="tab-audio" data-tab="audio"><span class="tab-ico" aria-hidden="true">🎵</span>Audio</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-transcript" aria-selected="false" aria-controls="tab-transcript" data-tab="transcript"><span class="tab-ico" aria-hidden="true">📝</span>ASR</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-translation" aria-selected="false" aria-controls="tab-translation" data-tab="translation" title="Realtime translation"><span class="tab-ico" aria-hidden="true">🌐</span>Translation</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-third-party" aria-selected="false" aria-controls="tab-third-party" data-tab="third-party" title="Third-party API keys"><span class="tab-ico" aria-hidden="true">🔐</span>Third-Party</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-docs" aria-selected="false" aria-controls="tab-docs" data-tab="docs" title="References & documentation"><span class="tab-ico" aria-hidden="true">📚</span>Docs</button>
     </nav>
 
@@ -45,6 +47,7 @@
     {% include "pages/dashboard/partials/audio.html" %}
     {% include "pages/dashboard/partials/transcript.html" %}
     {% include "pages/dashboard/partials/translation.html" %}
+    {% include "pages/dashboard/partials/third_party.html" %}
     {% include "pages/dashboard/partials/docs.html" %}
   </div>
 
@@ -60,6 +63,7 @@
   <script src="/static/js/dashboard/sections/audio.js"></script>
   <script src="/static/js/dashboard/sections/transcript.js"></script>
   <script src="/static/js/dashboard/sections/translation.js"></script>
+  <script src="/static/js/dashboard/sections/third_party.js"></script>
   <script src="/static/js/dashboard/sections/docs.js"></script>
 </body>
 </html>
