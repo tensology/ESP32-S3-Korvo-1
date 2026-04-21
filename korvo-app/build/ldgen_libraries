@@ -53,6 +53,7 @@
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/esp_coex/libesp_coex.a
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/esp_wifi/libesp_wifi.a
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/esp_gdbstub/libesp_gdbstub.a
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/bt/libbt.a
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/unity/libunity.a
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/cmock/libcmock.a
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/console/libconsole.a
@@ -84,9 +85,6 @@
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/wifi_provisioning/libwifi_provisioning.a
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__esp_codec_dev/libespressif__esp_codec_dev.a
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/hardware_driver/libhardware_driver.a
-/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/player/libplayer.a
-/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__esp-dsp/libespressif__esp-dsp.a
-/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__esp-sr/libespressif__esp-sr.a
+/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__mdns/libespressif__mdns.a
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__led_strip/libespressif__led_strip.a
 /Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/main/libmain.a
-/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/sr_ringbuf/libsr_ringbuf.a

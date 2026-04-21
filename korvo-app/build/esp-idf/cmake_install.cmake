@@ -564,17 +564,7 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/player/cmake_install.cmake")
-endif()
-
-if(NOT CMAKE_INSTALL_LOCAL_ONLY)
-  # Include the install script for the subdirectory.
-  include("/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__esp-dsp/cmake_install.cmake")
-endif()
-
-if(NOT CMAKE_INSTALL_LOCAL_ONLY)
-  # Include the install script for the subdirectory.
-  include("/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__esp-sr/cmake_install.cmake")
+  include("/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__mdns/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
@@ -585,11 +575,6 @@ endif()
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
   include("/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/main/cmake_install.cmake")
-endif()
-
-if(NOT CMAKE_INSTALL_LOCAL_ONLY)
-  # Include the install script for the subdirectory.
-  include("/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/sr_ringbuf/cmake_install.cmake")
 endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT

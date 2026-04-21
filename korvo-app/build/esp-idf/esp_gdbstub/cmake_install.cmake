@@ -1,4 +1,4 @@
-# Install script for directory: /Users/paul/esp/esp-idf/components/esp_gdbstub
+# Install script for directory: /Users/paul/development/TENSOLOGY/Korvo/korvo-app/components/esp_gdbstub
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

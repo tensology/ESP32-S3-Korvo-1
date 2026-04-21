@@ -120,12 +120,9 @@
 		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/wifi_provisioning/cmake_install.cmake",
 		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__esp_codec_dev/cmake_install.cmake",
 		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/hardware_driver/cmake_install.cmake",
-		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/player/cmake_install.cmake",
-		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__esp-dsp/cmake_install.cmake",
-		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__esp-sr/cmake_install.cmake",
+		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__mdns/cmake_install.cmake",
 		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/espressif__led_strip/cmake_install.cmake",
-		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/main/cmake_install.cmake",
-		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/sr_ringbuf/cmake_install.cmake"
+		"/Users/paul/development/TENSOLOGY/Korvo/korvo-app/build/esp-idf/main/cmake_install.cmake"
 	],
 	"Parallel" : false
 }

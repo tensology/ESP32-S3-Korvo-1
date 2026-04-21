@@ -3,6 +3,17 @@
     "ssid": "The Von",
     "password": "Sausage69"
   },
-  "settings": {},
-  "generated_at": "2026-04-20T00:43:45.978912+00:00"
+  "settings": {
+    "assemblyai_api_key": "bhnmfghkjmghjkg",
+    "openai_api_key": "",
+    "anthropic_api_key": "",
+    "google_gemini_api_key": "",
+    "elevenlabs_api_key": "",
+    "aws_access_key_id": "",
+    "aws_secret_access_key": "",
+    "aws_region": "eu-west-1",
+    "aws_session_token": "",
+    "aws_polly_enabled": "0"
+  },
+  "generated_at": "2026-04-21T22:42:54.257482+00:00"
 }

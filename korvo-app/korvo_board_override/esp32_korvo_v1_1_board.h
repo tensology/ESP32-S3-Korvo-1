@@ -82,7 +82,8 @@
  * @brief player configurations
  *
  */
-#define PLAYER_VOLUME   (50)
+/* 0–100 for esp_codec_dev_set_out_vol; higher = louder line-out / speaker path */
+#define PLAYER_VOLUME   (100)
 
 /**
  * @brief ESP32-S3-HMI-DevKit power control IO

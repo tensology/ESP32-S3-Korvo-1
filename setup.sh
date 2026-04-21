@@ -22,6 +22,21 @@ export PATH="/Users/paul/.espressif/tools/riscv32-esp-elf-gdb/16.3_20250913/risc
 export PATH="/Users/paul/.espressif/tools/esp32ulp-elf/2.38_20240113/esp32ulp-elf/bin:$PATH"
 export PATH="/Users/paul/.espressif/tools/openocd-esp32/v0.12.0-esp32-20260304/openocd-esp32/bin:$PATH"
 
+# Ensure official ESP-IDF environment variables are exported (including ESP_ROM_ELF_DIR).
+if [[ -f "$IDF_PATH/export.sh" ]]; then
+  # shellcheck disable=SC1090
+  source "$IDF_PATH/export.sh" >/dev/null 2>&1 || true
+fi
+
+# Fallback for setups where export.sh does not populate ESP_ROM_ELF_DIR.
+if [[ -z "${ESP_ROM_ELF_DIR:-}" ]]; then
+  _rom_tool_dir="$(ls -1d /Users/paul/.espressif/tools/esp-rom-elfs/* 2>/dev/null | sort | tail -n 1)"
+  if [[ -n "$_rom_tool_dir" && -d "$_rom_tool_dir" ]]; then
+    export ESP_ROM_ELF_DIR="${_rom_tool_dir}/"
+  fi
+  unset _rom_tool_dir
+fi
+
 echo "✓ ESP-IDF v5.4 environment activated (ESP32-S3 Korvo-1)"
 echo "✓ IDF_PATH: $IDF_PATH"
 echo ""
