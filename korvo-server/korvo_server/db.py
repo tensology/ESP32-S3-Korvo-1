@@ -53,15 +53,33 @@ def get_conn(db_path: Path):
         c.close()
 
 
+def _find_external_db_candidate(target: Path) -> Path | None:
+    target_resolved = target.resolve()
+    candidates: list[Path] = []
+    for db_file in REPO_ROOT.glob("*/korvo.db"):
+        try:
+            resolved = db_file.resolve()
+        except OSError:
+            continue
+        if resolved == target_resolved:
+            continue
+        if db_file.is_file():
+            candidates.append(db_file)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0]
+
+
 def migrate_legacy_sqlite_if_needed(target: Path) -> None:
-    """If korvo-server/korvo.db is missing, copy from old korvo-config-server/korvo.db (same repo)."""
+    """If the active DB is missing, copy from another Korvo DB in this repo."""
     if target.exists():
         return
-    legacy = REPO_ROOT / "korvo-config-server" / "korvo.db"
-    if legacy.is_file():
+    external = _find_external_db_candidate(target)
+    if external:
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(legacy, target)
-        print(f"[korvo] Migrated SQLite from {legacy}")
+        shutil.copy2(external, target)
+        print(f"[korvo] Migrated SQLite from {external}")
 
 
 class KorvoDB:
@@ -72,7 +90,7 @@ class KorvoDB:
         self.conn = connect(path)
         init_db(self.conn)
         if hydrate_wifi_db_from_external_sources(self.conn):
-            print("[korvo] WiFi networks were empty — restored from legacy korvo.db and/or korvo_config.h.")
+            print("[korvo] WiFi networks were empty — restored from external korvo.db and/or korvo_config.h.")
         self.lock = threading.Lock()
 
     def close(self) -> None:

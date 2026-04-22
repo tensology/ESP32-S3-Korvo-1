@@ -106,14 +106,32 @@ def has_active_wifi(conn: sqlite3.Connection) -> bool:
     return row is not None
 
 
-def _merge_legacy_sqlite_wifi(conn: sqlite3.Connection) -> bool:
-    """If this DB has no wifi_networks rows, copy them from korvo-config-server/korvo.db when that file exists."""
-    legacy = (REPO_ROOT / "korvo-config-server" / "korvo.db").resolve()
-    if not legacy.is_file():
+def _find_external_db_candidate() -> Path | None:
+    current = (REPO_ROOT / "korvo-server" / "korvo.db").resolve()
+    candidates: list[Path] = []
+    for db_file in REPO_ROOT.glob("*/korvo.db"):
+        try:
+            resolved = db_file.resolve()
+        except OSError:
+            continue
+        if resolved == current:
+            continue
+        if db_file.is_file():
+            candidates.append(db_file)
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0]
+
+
+def _merge_external_sqlite_wifi(conn: sqlite3.Connection) -> bool:
+    """If this DB has no wifi rows, copy them from another Korvo DB in this repo."""
+    external = _find_external_db_candidate()
+    if external is None:
         return False
     attached = False
     try:
-        conn.execute("ATTACH DATABASE ? AS legdb", (str(legacy),))
+        conn.execute("ATTACH DATABASE ? AS legdb", (str(external),))
         attached = True
         if not conn.execute(
             "SELECT 1 FROM legdb.sqlite_master WHERE type='table' AND name='wifi_networks'"
@@ -130,7 +148,7 @@ def _merge_legacy_sqlite_wifi(conn: sqlite3.Connection) -> bool:
         return True
     except sqlite3.OperationalError as e:
         conn.rollback()
-        print(f"[korvo] legacy WiFi merge failed: {e}")
+        print(f"[korvo] external WiFi merge failed: {e}")
         return False
     finally:
         if attached:
@@ -155,9 +173,9 @@ def _seed_wifi_from_header(conn: sqlite3.Connection) -> bool:
 
 
 def hydrate_wifi_db_from_external_sources(conn: sqlite3.Connection) -> bool:
-    """When wifi_networks is empty, pull from legacy Node korvo.db and/or existing korvo_config.h. Returns True if rows were inserted."""
+    """When wifi_networks is empty, pull from external korvo.db and/or existing korvo_config.h."""
     if conn.execute("SELECT 1 FROM wifi_networks LIMIT 1").fetchone():
         return False
-    if _merge_legacy_sqlite_wifi(conn):
+    if _merge_external_sqlite_wifi(conn):
         return True
     return _seed_wifi_from_header(conn)

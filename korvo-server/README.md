@@ -80,9 +80,9 @@ Notes:
 
 ## Where things are stored
 
-- Database: `korvo-server/korvo.db`
-- Logs: `korvo-server/logs/`
-- Audio recordings: `korvo-server/recordings/`
+- Database: `korvo.db`
+- Logs: `logs/`
+- Audio recordings: `recordings/`
 
 ---
 
@@ -108,7 +108,7 @@ Notes:
 
 ### WiFi entries seem missing
 
-- The active database is `korvo-server/korvo.db`
+- The active database is `korvo.db`
 - Re-add WiFi in the dashboard and set it active, then build/flash again
 
 ---

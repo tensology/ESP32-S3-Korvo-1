@@ -94,10 +94,6 @@ Scan for networks, enter password, and save active WiFi credentials for the boar
 
 ### Build & Flash
 
-<p align="center">
-  <img src="readme/build.webp" alt="Build and flash from Korvo Config" />
-</p>
-
 Pick your USB port, run build + flash, and watch progress in the built-in terminal panel.
 
 ### Bluetooth
@@ -107,6 +103,11 @@ Find nearby Bluetooth devices, connect, and set a preferred output device.
 Save your default board behavior (wake word, connection details, LED/volume defaults).
 
 ### LED
+
+<p align="center">
+  <img src="readme/build.webp" alt="Korvo Config LED controls" />
+</p>
+
 Control the board's LED ring without reflashing:
 
 - turn LEDs on/off
