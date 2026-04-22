@@ -1,124 +1,137 @@
-# Korvo Server
+<h1 align="center">Korvo Server</h1>
 
-FastAPI replacement for the old Node `korvo-config-server`: WiFi DB, config generation, build/flash SSE, OpenRouter proxy, optional audio relay, **translation + TTS**, and **live Whisper transcription**.
+<p align="center">
+  The local web dashboard that powers Korvo setup, build/flash, audio testing, live transcription, and translation.
+</p>
 
-The **Korvo Config** UI is one HTML shell plus **partials** per tab (`korvo_server/templates/pages/dashboard.html` and `templates/pages/dashboard/partials/*.html`). For a **section-by-section** tour (WiFi, Build, Bluetooth, Settings, LED, Audio, ASR, Translation, Third-Party, Docs) with screenshots, see the **[repository root `README.md`](../README.md)**.
+<p align="center">
+  <a href="#quick-start"><strong>Quick Start</strong></a> ·
+  <a href="#what-you-get"><strong>What You Get</strong></a> ·
+  <a href="#daily-workflow"><strong>Daily Workflow</strong></a> ·
+  <a href="#troubleshooting"><strong>Troubleshooting</strong></a>
+</p>
 
-## Setup (virtualenv `korvo`)
+---
 
-From this directory (`korvo-server/`):
+## Quick start
+
+From `korvo-server/`:
+
+```bash
+./start.sh
+```
+
+Then open:
+
+`http://localhost:3333/`
+
+That is enough for most users. The startup script creates a local Python environment, installs what is needed, and launches the dashboard server.
+
+---
+
+## What you get
+
+| | Feature | Why it matters |
+|---|---|---|
+| 📶 | **WiFi setup** | Save and manage board network credentials from the browser |
+| 🧱 | **Build & Flash** | Build and flash firmware with one click and live output |
+| 🎧 | **Bluetooth controls** | Connect playback devices and manage preferred output |
+| 🌈 | **LED controls** | Test colours, presets, and brightness on the board ring |
+| 🎙️ | **Audio tools** | Listen to board mic and push audio from your machine to the board |
+| 📝 | **Live transcript** | See speech-to-text updates while audio is streaming |
+| 🌍 | **Translation + speech** | Translate text and optionally play spoken responses |
+| 🔑 | **Third-party keys** | Save API keys used by optional integrations |
+| 💾 | **Local persistence** | Settings and keys are stored in the local SQLite database |
+
+For a complete visual tour of every dashboard tab, use the root guide: [`../README.md`](../README.md).
+
+---
+
+## Daily workflow
+
+Most sessions follow this sequence:
+
+1. Start the server with `./start.sh`
+2. Open `http://localhost:3333/`
+3. Plug in your board and use **Build & Flash**
+4. Confirm **WiFi** and **Settings**
+5. Test **LED** and **Audio**
+6. Use **ASR** and **Translation** if needed
+
+---
+
+## Optional manual start
+
+If you want to run things manually instead of using `./start.sh`:
 
 ```bash
 python3 -m venv korvo
 source korvo/bin/activate
 pip install -r requirements.txt
-```
-
-`./start.sh` also installs **pywhispercpp** from `requirements-whisper.txt` when it is missing (first run may compile; needs **CMake** and a C++ toolchain on some platforms). If that step fails, the server still starts; run `pip install -r requirements-whisper.txt` manually after fixing the toolchain.
-
-Run:
-
-```bash
-source korvo/bin/activate
 uvicorn korvo_server.main:app --host 0.0.0.0 --port 3333
 ```
 
-Or: `python -m korvo_server.main` if you add a `__main__.py` — use `uvicorn` as above.
+Notes:
 
-Open `http://localhost:3333/`.
+- Some speech features may install extra dependencies on first run.
+- If optional whisper components fail to build, the dashboard still starts; install optional packages later when your toolchain is ready.
 
-## Dashboard (recent UI notes)
+---
 
-- **Header / tabs:** The rule under “Korvo Config” sits close to the tab row (small top padding on the tab bar) so the layout stays compact.
-- **Build & Flash:** The card title and the terminal window title include a **hammer** icon; the live log title is `korvo — build & flash`.
-- **Audio:** **Listen** (board mic stream + relay) and **Push audio** are separate cards. **Playback volume** is its own panel **between** them: one slider for browser listen level, PCM/file gain sent from the page, and (when the browser can reach the board) `POST /api/audio/output-volume`. The push section refers to that panel for level.
-- **Translation:** Auto-transcribe uses the same Whisper WebSocket as the ASR tab (`step_sec` / `window_sec` / model from the **Live transcript** controls). For lower latency, try **Step seconds** around `1.0` (more CPU). A hint is shown on the Translation tab.
+## Where things are stored
 
-## Audio relay
+- Database: `korvo-server/korvo.db`
+- Logs: `korvo-server/logs/`
+- Audio recordings: `korvo-server/recordings/`
 
-Same-origin low-latency playback from the dashboard can use:
+---
 
-`/api/audio/relay?url=http%3A%2F%2F<board-ip>%2Fapi%2Faudio%2Fstream`
+## Troubleshooting
 
-Hosts are restricted to private LAN / `korvo.local` / localhost.
+### Dashboard does not open
 
-## Live transcription (Whisper.cpp → WebSocket)
+- Confirm the server is running from `korvo-server/`
+- Check for startup errors in terminal output
+- Retry `./start.sh`
 
-Local transcription uses **[pywhispercpp](https://github.com/absadiki/pywhispercpp)** (Python bindings for [whisper.cpp](https://github.com/ggerganov/whisper.cpp)). After `pip install -r requirements-whisper.txt`, the dashboard **Start live transcript** control opens a WebSocket that:
+### Build & flash cannot find your board
 
-1. Pulls **`http://<board>/api/audio/stream`** (same WAV / 16 kHz mono PCM as the relay).
-2. Strips the 44-byte header and buffers PCM.
-3. Every **`step_sec`** (default 1.25s), runs Whisper on the last **`window_sec`** (default 5s) of audio and sends JSON **`{ "type": "partial", "text": "…full window…", "delta": "…new words only…" }`**. **`delta`** removes words already present at the end of the previous window (word-aligned overlap), so the UI can append without repeating the overlapped span.
+- Reconnect USB cable
+- Choose the correct serial port in the dashboard
+- Try closing apps that may already be using the serial port
 
-Endpoint (for custom clients):
+### No audio during listen/push tests
 
-`WS /ws/audio/transcribe?board_url=<url-encoded http://…/api/audio/stream>&model=base.en&step_sec=1.25&window_sec=5`
+- Confirm board IP/host is correct
+- Verify board and server are on the same network
+- Check volume controls in the Audio tab
 
-Models use short ids (`base.en`, `small`, …); weights are downloaded on first use (often `~/Library/Application Support/pywhispercpp/models/` on macOS, or `~/.local/share/pywhispercpp/models/` on Linux).
+### WiFi entries seem missing
 
-This is **chunked** transcription (sliding window), not whisper.cpp’s low-latency stream API, but it works with the Korvo infinite HTTP WAV stream without extra firmware.
+- The active database is `korvo-server/korvo.db`
+- Re-add WiFi in the dashboard and set it active, then build/flash again
 
-**Sentence endpointing (server):** Final “sentences” for the UI are emitted when (a) a **delta** ends with sentence-ending punctuation, or (b) **VAD** sees enough consecutive low-energy steps after speech (**`vad_silence_chunks`**, tuned for short pauses). After long silence, a **`silence_clear`** message resets stale line state; the Translation tab’s auto-queue is cleared on that event so old phrases are not translated after you’ve stopped talking.
+---
 
-**Echo guard:** While the board (or local Mac) plays TTS from the translation path, the transcribe pipeline can **suppress** ingesting that audio for ASR so the mic stream is not re-transcribed as speech. Suppression uses a short tail after each played chunk.
+## Technical reference
 
-**Concurrency:** Whisper inference uses a **global asyncio lock** across all `/ws/audio/transcribe` clients so only one decode runs at a time.
+Use these when you need implementation details:
 
-## Translation & TTS (`POST /api/translate/google`)
+- Full product walkthrough and screenshots: [`../README.md`](../README.md)
+- Firmware-specific guide: [`../korvo-app/README.md`](../korvo-app/README.md)
+- Dashboard shell: `korvo_server/templates/pages/dashboard.html`
+- Dashboard tab partials: `korvo_server/templates/pages/dashboard/partials/`
+- Static assets: `korvo_server/static/`
 
-The **Translation** tab calls **`POST /api/translate/google`** (Google Translate `gtx` client) and optionally speaks the **target** text with **Kokoro** (default) or **AWS Polly** if enabled in settings.
+---
 
-| `playback_target` | Behavior |
-|---------------------|----------|
-| **`board_inject`** | After the JSON response returns, TTS runs in a **background task**: Kokoro/Polly → WAV → FFmpeg to s16le → **`POST`** chunks to **`http://<board>/api/audio/inject`**. Long text can be split into multiple phrases. |
-| **`server_local`** | Same background pattern: synthesize then **`afplay`** on the Mac (POSIX). Does **not** block the HTTP response on synthesis or playback. |
+## Advanced notes
 
-**Timeouts:** The Google Translate client uses a **60s** overall timeout (**15s** connect). The board inject client uses **90s** read/write per chunk (**15s** connect) so slow Wi‑Fi or a busy ESP is less likely to abort mid-stream.
+If you are building custom integrations, there are dedicated server routes for:
 
-**Logs:** See **`logs/translation_tts_compare.jsonl`** below.
+- audio relay
+- live transcription websocket
+- translation and TTS
+- recording streams to file
 
-## Logs (`logs/` under this directory)
-
-- **`translation_tts_compare.jsonl`** — One JSON object per **translate request** (source/target text, `speak_done` / `speak_pending` / `speak_error` at response time).  
-  Background TTS **completion** appends extra lines with **`"event": "board_inject_done"`** or **`"server_local_done"`**, plus **`ok`**, **`elapsed_sec`**, and on failure an **`error`** snippet. That way you can tell when Kokoro + inject actually finished, not only when the API returned.
-
-Server stdout also logs `board_inject_tts_finished` / `server_local_tts_finished` at **INFO** when background audio completes.
-
-## Record board audio to disk (VLC / monitoring)
-
-The server can pull the board’s WAV stream once and write **`korvo-server/recordings/*.wav`**, then patch the RIFF/data sizes so **VLC** and **ffplay** accept the file. Files are also served at **`http://<host>:3333/recordings/<filename>.wav`**.
-
-- **GET** (good for `curl`):
-
-  `GET /api/audio/record?board_url=http://192.168.1.27/api/audio/stream&duration_sec=30`
-
-  Optional: `&ffplay=1` to hear it while recording (requires **`ffplay`** from ffmpeg on the Mac).
-
-- **POST** JSON: `{ "board_url": "...", "duration_sec": 30, "play_ffplay": false, "filename": null }`
-
-Prefer the repo scripts (no `jq`):
-
-```bash
-chmod +x scripts/listen.sh scripts/record.sh   # once, if needed
-./scripts/record.sh
-KORVO_BOARD_IP=192.168.1.27 KORVO_RECORD_SEC=15 ./scripts/record.sh
-./scripts/listen.sh
-# or: bash scripts/listen.sh
-# Diagnose silence (byte rate + curl -v + ffplay logs on stderr):
-KORVO_PLAY_VERBOSE=1 ./scripts/listen.sh
-```
-
-Raw `curl` + `jq` is optional; if `jq` errors, the response is often HTML (wrong URL or server not running).
-
-## WiFi / `korvo_config` got cleared?
-
-The server DB lives at **`korvo-server/korvo.db`** (it is not the old `korvo-config-server/korvo.db`). If the DB is empty, we **no longer** overwrite `korvo_config.h` on every page load (`GET /api/config` is read-only). On first boot we still skip writing headers until you have an **active** WiFi row, unless you migrate an old DB.
-
-If `korvo-config-server/korvo.db` still exists next to this repo, it is copied automatically **once** when `korvo-server/korvo.db` is missing.
-
-Otherwise: add your network again in the UI (activate it), then **Build & Flash** so credentials return to the board. If you had committed good `korvo-app/main/korvo_config.h`, you can restore it from git before flashing.
-
-## What moved
-
-- UI template: `korvo_server/templates/pages/dashboard.html` (was `public/index.html`).
-- WiFi scanner binaries: `korvo-server/bin/` (unchanged paths expected by `/api/networks`).
+Keep this README focused on setup and usage; API-level behavior can stay in code docs and module comments.
