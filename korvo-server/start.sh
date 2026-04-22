@@ -4,6 +4,16 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 PORT=3333
+RELOAD_ON=0
+EXTRA_ARGS=()
+
+for arg in "$@"; do
+  if [[ "$arg" == "--reload-off" ]]; then
+    RELOAD_ON=0
+  else
+    EXTRA_ARGS+=("$arg")
+  fi
+done
 
 # PIDs using this port (listeners first; include generic match so nothing is left listening).
 _pids_on_port() {
@@ -72,4 +82,13 @@ fi
 # Clear port immediately before bind (avoids uvicorn ERROR: address already in use).
 prepare_port "$PORT"
 
-exec uvicorn korvo_server.main:app --host 0.0.0.0 --port "$PORT" "$@"
+UVICORN_ARGS=(korvo_server.main:app --host 0.0.0.0 --port "$PORT")
+if [[ $RELOAD_ON -eq 1 ]]; then
+  UVICORN_ARGS+=(--reload)
+fi
+
+if ((${#EXTRA_ARGS[@]} > 0)); then
+  exec uvicorn "${UVICORN_ARGS[@]}" "${EXTRA_ARGS[@]}"
+else
+  exec uvicorn "${UVICORN_ARGS[@]}"
+fi

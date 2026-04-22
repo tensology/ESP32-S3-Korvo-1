@@ -3,7 +3,6 @@
     <div class="card">
       <h2>
         <span class="icon">📶</span> WiFi Network
-        <span class="badge disconnected" id="wifiBadge">Not configured</span>
       </h2>
       <div class="row">
         <div class="field" style="flex:2">
@@ -13,7 +12,10 @@
         </div>
         <div class="field" style="flex:1">
           <label>&nbsp;</label>
-          <button class="btn-secondary" onclick="scanNetworks()" id="scanBtn">Scan</button>
+          <div style="display:flex;gap:0.45rem;">
+            <button class="btn-secondary" onclick="scanNetworks()" id="scanBtn">Scan</button>
+            <button class="btn-secondary" onclick="testWifiConnection()" id="testWifiBtn">Test Board</button>
+          </div>
         </div>
       </div>
       <div class="field">
@@ -34,7 +36,9 @@
       </div>
       <div class="btn-row">
         <button class="btn-primary" onclick="saveWifi()">Save & Set Active</button>
+        <button class="btn-secondary" onclick="syncWifiToBoard()">Sync Saved Networks to ESP32</button>
       </div>
+      <div id="wifiRuntimeStatus" style="margin-top:0.75rem;font-size:0.8rem;color:#888;">Board status: unknown</div>
       <div id="scanResults" style="display:none; margin-top: 1rem;">
         <label>Available Networks</label>
         <ul class="network-list" id="networkList"></ul>

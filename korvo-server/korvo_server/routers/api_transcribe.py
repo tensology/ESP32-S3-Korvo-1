@@ -27,6 +27,7 @@ router = APIRouter(tags=["audio"])
 _PCM_RATE = 16000
 _BYTES_MONO_S16_1S = _PCM_RATE * 2
 _SENTENCE_END_RE = re.compile(r"[.!?。！？]\s*$")
+_NON_SPEECH_RE = re.compile(r"^\[\s*(blank_audio|silence)\s*\]$", re.IGNORECASE)
 
 
 def _rms_pcm16le(buf: bytes) -> float:
@@ -58,6 +59,15 @@ def _token_jaccard(a: str, b: str) -> float:
     inter = len(sa.intersection(sb))
     union = len(sa) + len(sb) - inter
     return float(inter) / float(union) if union else 0.0
+
+
+def _is_non_speech_placeholder(text: str) -> bool:
+    t = " ".join((text or "").split()).strip()
+    if not t:
+        return True
+    if _NON_SPEECH_RE.match(t):
+        return True
+    return t.lower() in {"silence", "blank audio"}
 
 # One inference at a time across all connections (whisper.cpp model is not proven thread-safe).
 _ws_whisper_lock: asyncio.Lock | None = None
@@ -158,6 +168,11 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
     hard_reset_chunks = max(3, int(round(4.0 / step_sec)))
     silence_clear_emitted = False
     recent_sentences = deque(maxlen=8)
+    # Stability commit: if partial transcript stops changing across runs,
+    # finalize earlier without waiting on a long silence window.
+    stable_partial_count = 0
+    stable_finalize_chunks = 2
+    last_partial_norm = ""
 
     def _connected() -> bool:
         return websocket.client_state == WebSocketState.CONNECTED
@@ -207,11 +222,19 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
                     if _connected():
                         await websocket.send_json({"type": "error", "message": str(e)})
                     continue
+            if _is_non_speech_placeholder(text):
+                text = ""
             if not _connected():
                 break
             delta = sliding_window_text_delta(last_window_transcript, text)
             last_window_transcript = text
             delta_norm = " ".join((delta or "").split()).strip()
+            partial_norm = " ".join((text or "").split()).strip()
+            if partial_norm and partial_norm == last_partial_norm and not delta_norm:
+                stable_partial_count += 1
+            else:
+                stable_partial_count = 0
+            last_partial_norm = partial_norm
             if delta_norm:
                 sentence_buf = f"{sentence_buf} {delta_norm}".strip() if sentence_buf else delta_norm
                 silence_clear_emitted = False
@@ -220,7 +243,7 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
                     sentence_buf = ""
                     speech_active = False
                     silence_streak = 0
-                    if sentence:
+                    if sentence and not _is_non_speech_placeholder(sentence):
                         # Backend-side near-duplicate suppression.
                         duplicate = any(_token_jaccard(sentence, prev) >= 0.92 for prev in recent_sentences)
                         if not duplicate:
@@ -233,12 +256,30 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
                                 "reason": "punctuation",
                                 "t_unix": time.time(),
                             })
+            elif sentence_buf and speech_active and stable_partial_count >= stable_finalize_chunks and silence_streak >= 1:
+                sentence = sentence_buf.strip()
+                sentence_buf = ""
+                speech_active = False
+                silence_streak = 0
+                stable_partial_count = 0
+                if sentence and not _is_non_speech_placeholder(sentence):
+                    duplicate = any(_token_jaccard(sentence, prev) >= 0.92 for prev in recent_sentences)
+                    if not duplicate:
+                        recent_sentences.append(sentence)
+                        sentence_seq += 1
+                        await websocket.send_json({
+                            "type": "sentence",
+                            "sentence_id": sentence_seq,
+                            "text": sentence,
+                            "reason": "stability",
+                            "t_unix": time.time(),
+                        })
             elif sentence_buf and speech_active and silence_streak >= vad_silence_chunks:
                 sentence = sentence_buf.strip()
                 sentence_buf = ""
                 speech_active = False
                 silence_streak = 0
-                if sentence:
+                if sentence and not _is_non_speech_placeholder(sentence):
                     duplicate = any(_token_jaccard(sentence, prev) >= 0.92 for prev in recent_sentences)
                     if not duplicate:
                         recent_sentences.append(sentence)
@@ -258,7 +299,7 @@ async def ws_audio_transcribe(websocket: WebSocket) -> None:
                 speech_active = False
                 voiced_streak = 0
                 silence_streak = 0
-                if sentence and len(sentence) >= 8:
+                if sentence and len(sentence) >= 8 and not _is_non_speech_placeholder(sentence):
                     duplicate = any(_token_jaccard(sentence, prev) >= 0.92 for prev in recent_sentences)
                     if not duplicate:
                         recent_sentences.append(sentence)

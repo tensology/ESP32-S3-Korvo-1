@@ -10,6 +10,54 @@ from korvo_server.config import BIN_DIR
 router = APIRouter(prefix="/api", tags=["networks"])
 
 
+def _preferred_wifi_device() -> str | None:
+    """Return the macOS Wi-Fi interface name (e.g. en0) if available."""
+    try:
+        out = subprocess.run(
+            ["networksetup", "-listallhardwareports"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    lines = (out.stdout or "").splitlines()
+    for i, line in enumerate(lines):
+        if line.strip().lower() != "hardware port: wi-fi":
+            continue
+        for next_line in lines[i + 1 : i + 4]:
+            if next_line.strip().lower().startswith("device:"):
+                device = next_line.split(":", 1)[1].strip()
+                if device:
+                    return device
+    return None
+
+
+def _preferred_wifi_networks() -> list[str]:
+    """Read preferred SSIDs saved locally on this Mac."""
+    device = _preferred_wifi_device()
+    if not device:
+        return []
+    try:
+        out = subprocess.run(
+            ["networksetup", "-listpreferredwirelessnetworks", device],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    ssids: list[str] = []
+    for line in (out.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.lower().startswith("preferred networks on "):
+            continue
+        ssids.append(line)
+    return ssids
+
+
 @router.get("/networks")
 def list_networks(
     source: str = Query("all", description="'mac', 'esp32', or 'all'"),
@@ -75,6 +123,20 @@ def list_networks(
                 except (subprocess.TimeoutExpired, OSError, ValueError):
                     pass
 
+        if not networks:
+            for ssid in _preferred_wifi_networks():
+                if ssid and ssid not in seen:
+                    seen.add(ssid)
+                    networks.append(
+                        {
+                            "ssid": ssid,
+                            "rssi": -999,
+                            "security": "Saved on this Mac",
+                            "source": "mac_local",
+                            "current": False,
+                        }
+                    )
+
     if source in ("all", "esp32"):
         try:
             out = subprocess.run(
@@ -94,9 +156,10 @@ def list_networks(
             pass
 
     networks.sort(key=lambda x: x.get("rssi", -999), reverse=True)
-    note = (
-        None
-        if networks
-        else "macOS redacts SSIDs on modern versions. Enter your SSID manually, or use the ESP32 to scan (connect to its AP at 192.168.4.1)"
-    )
+    note = None
+    if not networks:
+        note = (
+            "macOS redacts SSIDs on modern versions. Enter your SSID manually, use locally saved networks, "
+            "or scan from ESP32 (connect to its AP at 192.168.4.1)."
+        )
     return {"networks": networks, "source": "mac" if networks else "none", "note": note}

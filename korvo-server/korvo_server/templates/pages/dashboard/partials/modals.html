@@ -21,4 +21,31 @@
     </div>
   </div>
 
+  <!-- WiFi Scan Modal -->
+  <div class="modal-overlay" id="wifiScanModal">
+    <div class="modal wifi-scan-modal">
+      <h3>Select WiFi network</h3>
+      <div class="subtitle">Choose a network, then connect</div>
+      <div id="wifiScanModalHint" style="margin-top:0.75rem;font-size:0.8rem;color:#888;"></div>
+      <div class="wifi-scan-modal-scroll">
+        <ul class="network-list wifi-scan-modal-list" id="wifiScanModalList"></ul>
+      </div>
+      <div class="btn-row" style="justify-content:center;margin-top:1rem;">
+        <button type="button" class="btn-secondary" onclick="closeWifiScanModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete WiFi Network Confirm Modal -->
+  <div class="modal-overlay" id="wifiDeleteModal">
+    <div class="modal wifi-delete-modal">
+      <h3>Remove saved network?</h3>
+      <div class="subtitle" id="wifiDeleteModalText">This will delete the selected WiFi network.</div>
+      <div class="btn-row" style="justify-content:center;margin-top:1rem;">
+        <button type="button" class="btn-secondary" onclick="closeWifiDeleteModal()">Cancel</button>
+        <button type="button" class="btn-primary" id="wifiDeleteConfirmBtn" onclick="confirmDeleteNetwork()">Remove</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>

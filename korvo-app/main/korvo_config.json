@@ -1,7 +1,7 @@
 {
   "wifi": {
-    "ssid": "The Von",
-    "password": "Sausage69"
+    "ssid": "Snuza Pty Ltd",
+    "password": "Snuza7Snuza"
   },
   "settings": {
     "assemblyai_api_key": "bhnmfghkjmghjkg",
@@ -13,7 +13,12 @@
     "aws_secret_access_key": "",
     "aws_region": "eu-west-1",
     "aws_session_token": "",
-    "aws_polly_enabled": "0"
+    "aws_polly_enabled": "0",
+    "wake_word": "hilexin",
+    "agent_endpoint": "",
+    "esp_ip": "192.168.2.174",
+    "last_board_host": "192.168.2.174",
+    "last_board_sta_ip": "192.168.2.174"
   },
-  "generated_at": "2026-04-21T22:42:54.257482+00:00"
+  "generated_at": "2026-04-22T18:32:35.885167+00:00"
 }

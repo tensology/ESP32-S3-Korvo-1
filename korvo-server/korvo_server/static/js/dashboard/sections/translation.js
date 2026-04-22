@@ -9,12 +9,83 @@
   let translationAutoBusy = false;
   let translationAutoLastQueuedSentence = '';
   let translationAutoLastSentenceId = 0;
+  let translationAutoLastRequestAt = 0;
+  let translationTtsObsTimer = null;
+  const TRANSLATION_AUTO_MIN_GAP_MS = 700;
   /** Show Whisper partials in the auto-transcribe line (same fluidity as the ASR tab). */
   let translationAutoPreviewMode = 'live_partial';
-  let translationAutoStartedListen = false;
+  let translationAutoDesired = false;
+  let translationAutoReconnectTimer = null;
+  let translationAutoReconnectAttempts = 0;
+  const TRANSLATION_AUTO_RECONNECT_MAX = 20;
+  const TRANSLATION_AUTO_RECONNECT_BASE_MS = 700;
 
   function translationStatusEl() {
     return document.getElementById('translationStatus');
+  }
+
+  function setPlaybackTargetLocked(locked) {
+    const el = document.getElementById('translationPlaybackTarget');
+    if (!el) return;
+    el.disabled = !!locked;
+    el.title = locked
+      ? 'Stop auto transcribing to change TTS output.'
+      : '';
+  }
+
+  function translationTtsObservabilityEl() {
+    return document.getElementById('translationTtsObservability');
+  }
+
+  function renderTtsObservability(message) {
+    const el = translationTtsObservabilityEl();
+    if (!el) return;
+    el.textContent = message || 'TTS session metrics: idle';
+  }
+
+  function formatTtsOrchestrator(orchestrator) {
+    if (!orchestrator || typeof orchestrator !== 'object') return '';
+    return `queue=${Number(orchestrator.queue_depth || 0)} · enq=${Number(orchestrator.enqueued_total || 0)} · replaced=${Number(orchestrator.replaced_total || 0)} · done=${Number(orchestrator.completed_total || 0)} · preempted=${Number(orchestrator.preempted_total || 0)}`;
+  }
+
+  async function pollTtsSessionsNow() {
+    const board = boardBaseUrl();
+    if (!board) {
+      renderTtsObservability('TTS session metrics: set board host to monitor queue health');
+      return;
+    }
+    try {
+      const res = await fetch('/api/translation/tts-sessions');
+      if (!res.ok) return;
+      const data = await res.json();
+      const sessions = Array.isArray(data && data.sessions) ? data.sessions : [];
+      const target = sessions.find((s) => String(s.board_base || '') === board);
+      if (!target) {
+        renderTtsObservability('TTS session metrics: no active session yet');
+        return;
+      }
+      renderTtsObservability(
+        `TTS session: queue=${Number(target.queue_depth || 0)} · active=${target.active ? 'yes' : 'no'} · enq=${Number(target.enqueued_total || 0)} · replaced=${Number(target.replaced_total || 0)} · done=${Number(target.completed_total || 0)} · fail=${Number(target.failed_total || 0)} · preempted=${Number(target.preempted_total || 0)}`
+      );
+    } catch (_) {}
+  }
+
+  function startTtsObservabilityPolling() {
+    if (translationTtsObsTimer) return;
+    pollTtsSessionsNow();
+    translationTtsObsTimer = setInterval(pollTtsSessionsNow, 1800);
+  }
+
+  function stopTtsObservabilityPolling() {
+    if (!translationTtsObsTimer) return;
+    clearInterval(translationTtsObsTimer);
+    translationTtsObsTimer = null;
+  }
+
+  function clearAutoReconnectTimer() {
+    if (!translationAutoReconnectTimer) return;
+    clearTimeout(translationAutoReconnectTimer);
+    translationAutoReconnectTimer = null;
   }
 
   /** server_local = Kokoro + afplay on the Mac; board_inject = stream to ESP32 */
@@ -69,10 +140,15 @@
     if (!base || typeof window.getBoardOutputVolumePercent !== 'function') return;
     const pct = window.getBoardOutputVolumePercent();
     try {
+      const signal =
+        typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+          ? AbortSignal.timeout(1200)
+          : undefined;
       await fetch(`${base}/api/audio/output-volume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ volume: pct }),
+        signal: signal,
       });
     } catch (_) {}
   }
@@ -121,6 +197,7 @@
       status.dataset.init = '1';
       if (!status.textContent.trim()) status.textContent = 'Realtime Translation Coming Soon!';
     }
+    setTranslationAutoBadge('disconnected', 'Off');
     ensureBoardIpFieldFromStorage();
     setKokoroVoiceOptions(FALLBACK_KOKORO_VOICES, 'af_heart');
     loadKokoroVoices();
@@ -219,12 +296,14 @@
     const inEl = document.getElementById('translationInputText');
     const outEl = document.getElementById('translationOutputText');
     const speakEl = document.getElementById('translationSpeakTarget');
+    const playbackEl = document.getElementById('translationPlaybackTarget');
     const voiceEl = document.getElementById('translationKokoroVoice');
-    if (!srcEl || !tgtEl || !inEl || !outEl || !speakEl || !voiceEl) return;
+    if (!srcEl || !tgtEl || !inEl || !outEl || !speakEl || !voiceEl || !playbackEl) return;
     const source_language = (srcEl.value || 'en').trim().toLowerCase();
     const target_language = (tgtEl.value || 'ja').trim().toLowerCase();
     const kokoro_voice = (voiceEl.value || 'af_heart').trim();
     const speak_target = !!speakEl.checked;
+    const playback_target = (playbackEl.value || 'board_inject').trim();
     const text = (inEl.value || '').trim();
     ensureBoardIpFieldFromStorage();
     const board_url = boardBaseUrl();
@@ -240,14 +319,15 @@
     }
     outEl.value = '';
     if (status) status.textContent = 'Translating...';
-    if (speak_target && !board_url) {
+    if (speak_target && playback_target === 'board_inject' && !board_url) {
       if (status) status.textContent = 'Set board host on the Audio tab (or connect WiFi once so the IP is saved), then retry.';
       if (typeof toast === 'function') toast('Set board host for device TTS', 'error');
       return;
     }
-    if (speak_target && board_url) {
+    if (speak_target && playback_target === 'board_inject' && board_url) {
       await flushBoardPlaybackVolumeIfPossible();
     }
+    const startedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     const res = await fetch('/api/translate/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -258,7 +338,7 @@
         speak_target,
         kokoro_voice,
         kokoro_speed: 1.0,
-        playback_target: speak_target ? 'board_inject' : 'server_local',
+        playback_target,
         board_url,
         stream_key: (typeof _boardStreamUrl === 'function' ? (_boardStreamUrl() || '') : ''),
         stream_volume: 1,
@@ -279,6 +359,8 @@
       return;
     }
     const data = await res.json();
+    const endedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const totalMs = Math.max(0, Math.round(endedAt - startedAt));
     outEl.value = data.translated_text || '';
     inEl.value = '';
     try {
@@ -295,16 +377,20 @@
         speak_pending: !!data.speak_pending,
         speak_error: data.speak_error || '',
         tts_board_chunks: data.tts_board_chunks,
+        request_ms: totalMs,
+        translate_ms_server: data.translate_ms,
+        total_ms_server: data.total_ms,
       });
     } catch (_) {}
     if (data.speak_target && data.speak_pending) {
       const n = Number(data.tts_board_chunks) || 0;
       const where = ttsPlaybackLabel(data);
+      const orch = formatTtsOrchestrator(data.tts_orchestrator);
       if (status) {
         status.textContent =
           n > 1
-            ? `Translated ${source_language} → ${target_language} · TTS starting on ${where} (${n} phrases, in background)`
-            : `Translated ${source_language} → ${target_language} · TTS starting on ${where} (in background)`;
+            ? `Translated ${source_language} → ${target_language} in ${totalMs}ms · TTS starting on ${where} (${n} phrases, in background${orch ? ` · ${orch}` : ''})`
+            : `Translated ${source_language} → ${target_language} in ${totalMs}ms · TTS starting on ${where} (in background${orch ? ` · ${orch}` : ''})`;
       }
     } else if (data.speak_target && data.speak_done) {
       const n = Number(data.tts_board_chunks) || 0;
@@ -312,13 +398,18 @@
       if (n > 1) {
         if (status) status.textContent = `Translated ${source_language} → ${target_language} · played on ${where} (${n} phrases)`;
       } else if (status) {
-        status.textContent = `Translated ${source_language} → ${target_language} and played on ${where}`;
+        status.textContent = `Translated ${source_language} → ${target_language} in ${totalMs}ms and played on ${where}`;
       }
     } else if (data.speak_target && data.speak_error) {
       if (status) status.textContent = `Translated ${source_language} → ${target_language}, but speak failed: ${data.speak_error}`;
       if (typeof toast === 'function') toast('Speak target failed', 'error');
     } else {
-      if (status) status.textContent = `Translated ${source_language} → ${target_language}`;
+      if (status) status.textContent = `Translated ${source_language} → ${target_language} in ${totalMs}ms`;
+    }
+    if (data.tts_orchestrator) {
+      renderTtsObservability(`TTS session: ${formatTtsOrchestrator(data.tts_orchestrator)}`);
+    } else if (playback_target === 'board_inject') {
+      startTtsObservabilityPolling();
     }
     if (typeof toast === 'function') toast('Translation complete');
   }
@@ -350,6 +441,14 @@
 
   function translationAutoStatusEl() {
     return document.getElementById('translationAutoTranscribeStatus');
+  }
+
+  function setTranslationAutoBadge(state, text) {
+    const el = translationAutoStatusEl();
+    if (!el) return;
+    const s = (state || 'disconnected').trim();
+    el.className = `badge translation-auto-status ${s}`;
+    el.textContent = text || '';
   }
 
   function translationAutoLiveEl() {
@@ -396,9 +495,17 @@
   async function processAutoQueue() {
     if (translationAutoBusy || !translationAutoQueue.length) return;
     translationAutoBusy = true;
-    const sentence = translationAutoQueue.shift();
+    // Keep live mode realtime: translate newest sentence only, drop stale backlog.
+    const sentence = translationAutoQueue[translationAutoQueue.length - 1];
+    translationAutoQueue = [];
     try {
+      const now = Date.now();
+      const sinceLast = now - translationAutoLastRequestAt;
+      if (sinceLast < TRANSLATION_AUTO_MIN_GAP_MS) {
+        await new Promise((resolve) => setTimeout(resolve, TRANSLATION_AUTO_MIN_GAP_MS - sinceLast));
+      }
       await translateTextGoogleWithText(sentence);
+      translationAutoLastRequestAt = Date.now();
     } finally {
       translationAutoBusy = false;
       if (translationAutoQueue.length) processAutoQueue();
@@ -411,28 +518,31 @@
     const tgtEl = document.getElementById('translationTargetLang');
     const outEl = document.getElementById('translationOutputText');
     const speakEl = document.getElementById('translationSpeakTarget');
+    const playbackEl = document.getElementById('translationPlaybackTarget');
     const voiceEl = document.getElementById('translationKokoroVoice');
     const inEl = document.getElementById('translationInputText');
-    if (!srcEl || !tgtEl || !outEl || !speakEl || !voiceEl || !inEl) return;
+    if (!srcEl || !tgtEl || !outEl || !speakEl || !voiceEl || !inEl || !playbackEl) return;
     const text = normalizeSnippet(inputText);
     if (!text || shouldSkipAutoSentence(text)) return;
     const source_language = (srcEl.value || 'en').trim().toLowerCase();
     const target_language = (tgtEl.value || 'ja').trim().toLowerCase();
     const kokoro_voice = (voiceEl.value || 'af_heart').trim();
     const speak_target = !!speakEl.checked;
+    const playback_target = (playbackEl.value || 'board_inject').trim();
     ensureBoardIpFieldFromStorage();
     const board_url = boardBaseUrl();
     inEl.value = text;
     if (status) status.textContent = 'Auto translating sentence...';
-    if (speak_target && !board_url) {
+    if (speak_target && playback_target === 'board_inject' && !board_url) {
       if (status) status.textContent = 'Set board host on the Audio tab (or save WiFi IP) so auto TTS can reach the ESP.';
       return;
     }
-    if (speak_target && board_url) {
+    if (speak_target && playback_target === 'board_inject' && board_url) {
       await flushBoardPlaybackVolumeIfPossible();
     }
     const stream_key =
       typeof _boardStreamUrl === 'function' ? (_boardStreamUrl() || '') : `${board_url.replace(/\/$/, '')}/api/audio/stream`;
+    const startedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     const res = await fetch('/api/translate/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -443,7 +553,7 @@
         speak_target,
         kokoro_voice,
         kokoro_speed: 1.0,
-        playback_target: speak_target ? 'board_inject' : 'server_local',
+        playback_target,
         board_url,
         stream_key,
         stream_volume: 1,
@@ -456,36 +566,38 @@
       return;
     }
     const data = await res.json();
+    const endedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    const totalMs = Math.max(0, Math.round(endedAt - startedAt));
     outEl.value = data.translated_text || '';
     inEl.value = '';
     if (data.speak_target && data.speak_pending) {
       const nc = Number(data.tts_board_chunks) || 0;
       const where = ttsPlaybackLabel(data);
+      const orch = formatTtsOrchestrator(data.tts_orchestrator);
       if (status) {
         status.textContent =
           nc > 1
-            ? `Auto translated · TTS streaming to ${where} (${nc} phrases, ${data.tts_vendor_used || 'kokoro'})`
-            : `Auto translated · TTS streaming to ${where} (${data.tts_vendor_used || 'kokoro'})`;
+            ? `Auto translated in ${totalMs}ms · TTS streaming to ${where} (${nc} phrases, ${data.tts_vendor_used || 'kokoro'}${orch ? ` · ${orch}` : ''})`
+            : `Auto translated in ${totalMs}ms · TTS streaming to ${where} (${data.tts_vendor_used || 'kokoro'}${orch ? ` · ${orch}` : ''})`;
       }
     } else if (data.speak_target && data.speak_done) {
       const nc = Number(data.tts_board_chunks) || 0;
       const where = ttsPlaybackLabel(data);
       if (nc > 1 && status) {
-        status.textContent = `Auto translated · played on ${where} (${nc} phrases, ${data.tts_vendor_used || 'kokoro'})`;
+        status.textContent = `Auto translated in ${totalMs}ms · played on ${where} (${nc} phrases, ${data.tts_vendor_used || 'kokoro'})`;
       } else if (status) {
-        status.textContent = `Auto translated and played on ${where} (${data.tts_vendor_used || 'kokoro'})`;
+        status.textContent = `Auto translated in ${totalMs}ms and played on ${where} (${data.tts_vendor_used || 'kokoro'})`;
       }
     } else if (data.speak_target && data.speak_error) {
       if (status) status.textContent = `Auto translated, speak failed: ${data.speak_error}`;
     } else {
-      if (status) status.textContent = 'Auto translated sentence.';
+      if (status) status.textContent = `Auto translated sentence in ${totalMs}ms.`;
     }
-  }
-
-  function _audioLiveMicAlreadyOn() {
-    const b = document.getElementById('audioBtn');
-    const t = (b && b.textContent) ? b.textContent : '';
-    return /Stop\s+live\s+mic/i.test(t);
+    if (data.tts_orchestrator) {
+      renderTtsObservability(`TTS session: ${formatTtsOrchestrator(data.tts_orchestrator)}`);
+    } else if (playback_target === 'board_inject') {
+      startTtsObservabilityPolling();
+    }
   }
 
   async function toggleTranslationAutoTranscribe() {
@@ -494,22 +606,20 @@
     const live = translationAutoLiveEl();
     if (!btn || !st || !live) return;
     if (translationAutoWs) {
+      translationAutoDesired = false;
+      clearAutoReconnectTimer();
       try { translationAutoWs.close(); } catch (_) {}
       translationAutoWs = null;
       btn.textContent = '▶️ Start auto transcribing';
-      st.textContent = 'Off';
-      if (translationAutoStartedListen && typeof toggleAudioStream === 'function' && _audioLiveMicAlreadyOn()) {
-        try {
-          await toggleAudioStream();
-        } catch (_) {}
-      }
-      translationAutoStartedListen = false;
+      setTranslationAutoBadge('disconnected', 'Off');
+      setPlaybackTargetLocked(false);
+      stopTtsObservabilityPolling();
       return;
     }
     let streamUrl = '';
     if (typeof _boardStreamUrl === 'function') streamUrl = _boardStreamUrl();
     if (!streamUrl) {
-      st.textContent = 'Missing board stream URL';
+      setTranslationAutoBadge('disconnected', 'No board');
       if (typeof toast === 'function') toast('Set board host first', 'error');
       return;
     }
@@ -526,33 +636,38 @@
     translationAutoBusy = false;
     translationAutoLastQueuedSentence = '';
     translationAutoLastSentenceId = 0;
-    translationAutoStartedListen = false;
-    const listenCb = document.getElementById('translationListenBoard');
-    if (listenCb && listenCb.checked && typeof toggleAudioStream === 'function' && !_audioLiveMicAlreadyOn()) {
-      try {
-        await toggleAudioStream();
-        translationAutoStartedListen = _audioLiveMicAlreadyOn();
-        if (!translationAutoStartedListen && st) {
-          st.textContent = 'Mic playback failed — transcript only';
-        }
-      } catch (_) {
-        if (st) st.textContent = 'Mic playback failed — transcript only';
-      }
-    }
+    translationAutoDesired = true;
+    translationAutoReconnectAttempts = 0;
+    clearAutoReconnectTimer();
+    let gotTranscribePayload = false;
     live.textContent = 'Connecting…';
-    st.textContent = 'Connecting…';
-    translationAutoWs = new WebSocket(wsUrl);
-    translationAutoWs.onopen = () => {
-      btn.textContent = '⏹ Stop auto transcribing';
-      st.textContent = 'Live';
-    };
-    translationAutoWs.onmessage = (ev) => {
+    setTranslationAutoBadge('scanning', 'Connecting');
+    setPlaybackTargetLocked(true);
+    startTtsObservabilityPolling();
+    const connectAutoWs = () => {
+      if (!translationAutoDesired) return;
+      if (translationAutoWs) return;
+      translationAutoWs = new WebSocket(wsUrl);
+      translationAutoWs.onopen = () => {
+        translationAutoReconnectAttempts = 0;
+        btn.textContent = '⏹ Stop auto transcribing';
+        setTranslationAutoBadge('scanning', 'Connecting');
+        if (!live.textContent || live.textContent === 'Connecting…') {
+          live.textContent = 'Listening… speak near the board mic.';
+        }
+      };
+      translationAutoWs.onmessage = (ev) => {
       let msg;
       try { msg = JSON.parse(ev.data); } catch (_) { return; }
       if (msg.type === 'sentence') {
         const s = sanitizeAsrChunk(msg.text || '');
         if (s && !shouldSkipAutoSentence(s) && !isDuplicateSentence(s, msg.sentence_id)) {
+          gotTranscribePayload = true;
+          setTranslationAutoBadge('connected', 'Live');
           translationAutoQueue.push(s);
+          if (translationAutoQueue.length > 3) {
+            translationAutoQueue = translationAutoQueue.slice(-1);
+          }
           translationAutoLastQueuedSentence = s;
           if (Number(msg.sentence_id || 0) > 0) translationAutoLastSentenceId = Number(msg.sentence_id);
           live.textContent = s;
@@ -569,29 +684,51 @@
           const delta = normalizeSnippet(msg.delta != null ? String(msg.delta) : '');
           const cleanDelta = sanitizeAsrChunk(delta);
           const cleanFull = sanitizeAsrChunk(full);
-          const show = cleanDelta || cleanFull;
-          if (show && !shouldSkipAutoSentence(show)) live.textContent = show;
+          const fallbackRaw = cleanDelta ? '' : (cleanFull ? '' : (delta || full));
+          const show = cleanDelta || cleanFull || fallbackRaw;
+          if (show && !shouldSkipAutoSentence(show)) {
+            gotTranscribePayload = true;
+            setTranslationAutoBadge('connected', 'Live');
+            live.textContent = show;
+          }
         }
       } else if (msg.type === 'error') {
-        st.textContent = `Error: ${msg.message || ''}`;
+        setTranslationAutoBadge('disconnected', 'Error');
       } else if (msg.type === 'ready') {
-        st.textContent = `Ready (${msg.model || model})`;
+        setTranslationAutoBadge('scanning', 'Listening');
+        if (!live.textContent || live.textContent === 'Connecting…') {
+          live.textContent = 'Listening… speak near the board mic.';
+        }
       }
+      };
+      translationAutoWs.onerror = () => {
+        if (translationAutoDesired) {
+          setTranslationAutoBadge('scanning', 'Reconnecting');
+        } else {
+          setTranslationAutoBadge('disconnected', 'WS error');
+        }
+      };
+      translationAutoWs.onclose = async () => {
+        translationAutoWs = null;
+        if (translationAutoDesired) {
+          const attempt = Math.min(translationAutoReconnectAttempts + 1, TRANSLATION_AUTO_RECONNECT_MAX);
+          translationAutoReconnectAttempts = attempt;
+          const delay = Math.min(8000, TRANSLATION_AUTO_RECONNECT_BASE_MS * Math.pow(1.35, Math.max(0, attempt - 1)));
+          setTranslationAutoBadge('scanning', `Reconnecting (${attempt})`);
+          clearAutoReconnectTimer();
+          translationAutoReconnectTimer = setTimeout(() => {
+            translationAutoReconnectTimer = null;
+            connectAutoWs();
+          }, delay);
+          return;
+        }
+        btn.textContent = '▶️ Start auto transcribing';
+        setTranslationAutoBadge('disconnected', gotTranscribePayload ? 'Off' : 'Disconnected');
+        setPlaybackTargetLocked(false);
+        stopTtsObservabilityPolling();
+      };
     };
-    translationAutoWs.onerror = () => {
-      st.textContent = 'WebSocket error';
-    };
-    translationAutoWs.onclose = async () => {
-      translationAutoWs = null;
-      btn.textContent = '▶️ Start auto transcribing';
-      if (st.textContent === 'Live' || st.textContent.startsWith('Ready')) st.textContent = 'Off';
-      if (translationAutoStartedListen && typeof toggleAudioStream === 'function' && _audioLiveMicAlreadyOn()) {
-        try {
-          await toggleAudioStream();
-        } catch (_) {}
-      }
-      translationAutoStartedListen = false;
-    };
+    connectAutoWs();
   }
 
   window.saveTranslationSettings = saveTranslationSettings;

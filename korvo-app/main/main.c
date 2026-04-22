@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <errno.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/ringbuf.h"
@@ -30,7 +31,8 @@
 #include "esp_avrc_api.h"
 #endif
 
-#define AUDIO_RINGBUF_SIZE (64 * 1024)
+#define AUDIO_RINGBUF_SIZE (256 * 1024)
+#define TICKS_AT_LEAST_1(ms) ((pdMS_TO_TICKS(ms) > 0) ? pdMS_TO_TICKS(ms) : 1)
 #define AUDIO_SAMPLE_RATE 16000
 #define AUDIO_BIT_DEPTH 16
 #define AUDIO_CHUNK_SIZE 640
@@ -38,7 +40,7 @@
 /* ES7210 + I2S int32 stereo: energy is in the upper int32 range; scale before int16 clamp.
  * RECORD_VOLUME in board header sets PGA only. Increase shift if still clipped; decrease if too quiet. */
 #ifndef KORVO_MIC_I32_MONO_SHIFT
-#define KORVO_MIC_I32_MONO_SHIFT 14
+#define KORVO_MIC_I32_MONO_SHIFT 12
 #endif
 
 static RingbufHandle_t audio_ringbuf = NULL;
@@ -50,9 +52,16 @@ static RingbufHandle_t playback_ringbuf_bt = NULL;
 #define PLAYBACK_PUSH_MAX (4096)
 #define PLAYBACK_FRAME_BYTES (640)          /* 20 ms @ 16 kHz mono s16le input */
 #define PLAYBACK_STEREO_FRAME_BYTES (1280)  /* 20 ms @ 16 kHz stereo s16le output */
-#define PLAYBACK_PREBUFFER_BYTES (30720)    /* ~960 ms startup jitter buffer (matches server preburst target) */
+#define PLAYBACK_PREBUFFER_BYTES (12800)    /* ~400 ms startup jitter buffer (lower latency, still jitter-tolerant) */
 #define PLAYBACK_FIFO_BYTES (32768)
 static volatile uint32_t inject_playback_deadline_ms = 0;
+/* Inject telemetry (best-effort, lock-free counters for host-side pacing). */
+static volatile uint32_t inject_http_posts_total = 0;
+static volatile uint32_t inject_http_posts_dropped = 0;
+static volatile uint32_t inject_http_bytes_accepted = 0;
+static volatile uint32_t inject_playback_bytes_consumed = 0;
+static volatile uint32_t inject_playback_underruns = 0;
+static volatile uint32_t inject_playback_fifo_level = 0;
 
 static const char *TAG = "KORVO";
 
@@ -380,7 +389,7 @@ static int32_t bt_a2dp_data_cb(uint8_t *data, int32_t len) {
     for (int i = 0; i < out_samples; i += 2) {
         while (((int)src_pos) >= mono_count) {
             size_t item_size = 0;
-            void *item = xRingbufferReceiveUpTo(playback_ringbuf_bt, &item_size, pdMS_TO_TICKS(2), PLAYBACK_PUSH_MAX * sizeof(int16_t));
+            void *item = xRingbufferReceiveUpTo(playback_ringbuf_bt, &item_size, TICKS_AT_LEAST_1(2), PLAYBACK_PUSH_MAX * sizeof(int16_t));
             if (!item || item_size < sizeof(int16_t)) {
                 out[i] = 0;
                 out[i + 1] = 0;
@@ -757,6 +766,152 @@ static void led_start_breath_cue(uint8_t r, uint8_t g, uint8_t b, uint32_t durat
 }
 
 static volatile bool wifi_connected = false;
+#define WIFI_PROFILE_MAX 5
+typedef struct {
+    char ssid[33];
+    char password[65];
+    bool used;
+} wifi_profile_t;
+static wifi_profile_t wifi_profiles[WIFI_PROFILE_MAX];
+static int wifi_profile_count = 0;
+static int wifi_active_index = 0;
+static int wifi_connected_index = -1;
+static uint8_t wifi_retry_same = 0;
+static portMUX_TYPE wifi_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void wifi_profiles_set_single_fallback(void) {
+    memset(wifi_profiles, 0, sizeof(wifi_profiles));
+    wifi_profile_count = 0;
+    wifi_active_index = 0;
+    if (strlen(KORVO_WIFI_SSID) > 0) {
+        wifi_profiles[0].used = true;
+        strncpy(wifi_profiles[0].ssid, KORVO_WIFI_SSID, sizeof(wifi_profiles[0].ssid) - 1);
+        strncpy(wifi_profiles[0].password, KORVO_WIFI_PASSWORD, sizeof(wifi_profiles[0].password) - 1);
+        wifi_profile_count = 1;
+    }
+}
+
+static void wifi_profiles_load_from_nvs(void) {
+    nvs_handle_t nvs = 0;
+    bool loaded = false;
+    if (nvs_open("wifi_cfg", NVS_READONLY, &nvs) == ESP_OK) {
+        uint8_t count_u8 = 0;
+        uint8_t active_u8 = 0;
+        if (nvs_get_u8(nvs, "count", &count_u8) == ESP_OK && count_u8 > 0) {
+            memset(wifi_profiles, 0, sizeof(wifi_profiles));
+            wifi_profile_count = 0;
+            for (int i = 0; i < WIFI_PROFILE_MAX && i < (int)count_u8; i++) {
+                char key_ssid[8];
+                char key_pwd[8];
+                snprintf(key_ssid, sizeof(key_ssid), "s%d", i);
+                snprintf(key_pwd, sizeof(key_pwd), "p%d", i);
+                size_t ssid_len = sizeof(wifi_profiles[i].ssid);
+                size_t pwd_len = sizeof(wifi_profiles[i].password);
+                if (nvs_get_str(nvs, key_ssid, wifi_profiles[i].ssid, &ssid_len) == ESP_OK &&
+                    strlen(wifi_profiles[i].ssid) > 0) {
+                    if (nvs_get_str(nvs, key_pwd, wifi_profiles[i].password, &pwd_len) != ESP_OK) {
+                        wifi_profiles[i].password[0] = '\0';
+                    }
+                    wifi_profiles[i].used = true;
+                    wifi_profile_count++;
+                }
+            }
+            if (nvs_get_u8(nvs, "active", &active_u8) == ESP_OK && wifi_profile_count > 0) {
+                wifi_active_index = (int)active_u8;
+                if (wifi_active_index < 0 || wifi_active_index >= wifi_profile_count) {
+                    wifi_active_index = 0;
+                }
+            } else {
+                wifi_active_index = 0;
+            }
+            loaded = wifi_profile_count > 0;
+        }
+        nvs_close(nvs);
+    }
+    if (!loaded) {
+        wifi_profiles_set_single_fallback();
+    }
+}
+
+static void wifi_profiles_save_to_nvs(void) {
+    nvs_handle_t nvs = 0;
+    if (nvs_open("wifi_cfg", NVS_READWRITE, &nvs) != ESP_OK) {
+        return;
+    }
+    uint8_t count_u8 = (uint8_t)((wifi_profile_count < 0) ? 0 : ((wifi_profile_count > WIFI_PROFILE_MAX) ? WIFI_PROFILE_MAX : wifi_profile_count));
+    uint8_t active_u8 = (uint8_t)((wifi_active_index < 0) ? 0 : wifi_active_index);
+    nvs_set_u8(nvs, "count", count_u8);
+    nvs_set_u8(nvs, "active", active_u8);
+    for (int i = 0; i < WIFI_PROFILE_MAX; i++) {
+        char key_ssid[8];
+        char key_pwd[8];
+        snprintf(key_ssid, sizeof(key_ssid), "s%d", i);
+        snprintf(key_pwd, sizeof(key_pwd), "p%d", i);
+        if (i < wifi_profile_count && wifi_profiles[i].used && wifi_profiles[i].ssid[0] != '\0') {
+            nvs_set_str(nvs, key_ssid, wifi_profiles[i].ssid);
+            nvs_set_str(nvs, key_pwd, wifi_profiles[i].password);
+        } else {
+            nvs_erase_key(nvs, key_ssid);
+            nvs_erase_key(nvs, key_pwd);
+        }
+    }
+    nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
+static esp_err_t wifi_apply_profile_index(int idx) {
+    if (idx < 0 || idx >= wifi_profile_count || !wifi_profiles[idx].used) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    wifi_config_t wifi_config = {0};
+    strncpy((char *)wifi_config.sta.ssid, wifi_profiles[idx].ssid, sizeof(wifi_config.sta.ssid) - 1);
+    strncpy((char *)wifi_config.sta.password, wifi_profiles[idx].password, sizeof(wifi_config.sta.password) - 1);
+    esp_err_t err = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (err == ESP_OK) {
+        wifi_active_index = idx;
+    }
+    return err;
+}
+
+/* Scan visible APs and pick first matching saved profile (priority starts from current active profile). */
+static int wifi_find_visible_profile_index(void) {
+    if (wifi_profile_count <= 0) {
+        return -1;
+    }
+    wifi_scan_config_t scan_cfg = {0};
+    esp_err_t se = esp_wifi_scan_start(&scan_cfg, true);
+    if (se != ESP_OK) {
+        ESP_LOGW(TAG, "WiFi scan failed: %s", esp_err_to_name(se));
+        return -1;
+    }
+    uint16_t ap_num = 0;
+    if (esp_wifi_scan_get_ap_num(&ap_num) != ESP_OK || ap_num == 0) {
+        return -1;
+    }
+    wifi_ap_record_t *aps = (wifi_ap_record_t *)calloc(ap_num, sizeof(wifi_ap_record_t));
+    if (!aps) {
+        return -1;
+    }
+    uint16_t got = ap_num;
+    int selected = -1;
+    if (esp_wifi_scan_get_ap_records(&got, aps) == ESP_OK) {
+        for (int off = 0; off < wifi_profile_count; off++) {
+            int idx = (wifi_active_index + off) % wifi_profile_count;
+            if (!wifi_profiles[idx].used || wifi_profiles[idx].ssid[0] == '\0') {
+                continue;
+            }
+            for (uint16_t i = 0; i < got; i++) {
+                if (strcmp((const char *)aps[i].ssid, wifi_profiles[idx].ssid) == 0) {
+                    selected = idx;
+                    goto done;
+                }
+            }
+        }
+    }
+done:
+    free(aps);
+    return selected;
+}
 
 static void korvo_init_nvs(void)
 {
@@ -773,6 +928,28 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        wifi_connected = false;
+        wifi_event_sta_disconnected_t *disconn = (wifi_event_sta_disconnected_t *)event_data;
+        ESP_LOGW(TAG, "WiFi disconnected (reason=%d)", disconn ? disconn->reason : -1);
+        if (wifi_profile_count <= 0) {
+            esp_wifi_connect();
+            return;
+        }
+        if (wifi_retry_same < 1) {
+            wifi_retry_same++;
+            esp_wifi_connect();
+            return;
+        }
+        wifi_retry_same = 0;
+        int chosen = wifi_find_visible_profile_index();
+        if (chosen < 0) {
+            chosen = (wifi_active_index + 1) % wifi_profile_count;
+        }
+        if (wifi_apply_profile_index(chosen) == ESP_OK) {
+            ESP_LOGI(TAG, "Trying WiFi profile %d/%d: %s", chosen + 1, wifi_profile_count, wifi_profiles[chosen].ssid);
+        }
+        esp_wifi_connect();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ESP_LOGI(TAG, "WiFi connected!");
         
@@ -785,6 +962,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         }
 
         wifi_connected = true;
+        wifi_retry_same = 0;
+        wifi_connected_index = wifi_active_index;
+        wifi_profiles_save_to_nvs();
+        wifi_ap_record_t rec = {0};
+        if (esp_wifi_sta_get_ap_info(&rec) == ESP_OK) {
+            ESP_LOGI(TAG, "Connected SSID: %s", (const char *)rec.ssid);
+        }
         /* Momentary green breath — not a continuous "WiFi OK" animation. */
         led_start_breath_cue(0, 210, 100, LED_CUE_BREATH_MS);
     }
@@ -792,7 +976,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 
 static void wifi_init_sta(void)
 {
-    ESP_LOGI(TAG, "Connecting to: %s", KORVO_WIFI_SSID);
+    wifi_profiles_load_from_nvs();
+    if (wifi_profile_count > 0) {
+        ESP_LOGI(TAG, "Connecting to profile %d/%d: %s", wifi_active_index + 1, wifi_profile_count, wifi_profiles[wifi_active_index].ssid);
+    } else {
+        ESP_LOGW(TAG, "No WiFi profiles configured yet");
+    }
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
@@ -803,11 +992,10 @@ static void wifi_init_sta(void)
     esp_event_handler_instance_t inst_any, inst_ip;
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, &inst_any));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, &inst_ip));
-    wifi_config_t wifi_config = {0};
-    strncpy((char *)wifi_config.sta.ssid, KORVO_WIFI_SSID, 32);
-    strncpy((char *)wifi_config.sta.password, KORVO_WIFI_PASSWORD, 64);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    if (wifi_profile_count > 0) {
+        ESP_ERROR_CHECK(wifi_apply_profile_index(wifi_active_index));
+    }
     ESP_ERROR_CHECK(esp_wifi_start());
 }
 
@@ -823,8 +1011,10 @@ static void wifi_start_softap_fallback(void)
     ap_config.ap.authmode = WIFI_AUTH_OPEN;
 
     wifi_config_t sta_config = {0};
-    strncpy((char *)sta_config.sta.ssid, KORVO_WIFI_SSID, sizeof(sta_config.sta.ssid) - 1);
-    strncpy((char *)sta_config.sta.password, KORVO_WIFI_PASSWORD, sizeof(sta_config.sta.password) - 1);
+    if (wifi_profile_count > 0 && wifi_active_index >= 0 && wifi_active_index < wifi_profile_count) {
+        strncpy((char *)sta_config.sta.ssid, wifi_profiles[wifi_active_index].ssid, sizeof(sta_config.sta.ssid) - 1);
+        strncpy((char *)sta_config.sta.password, wifi_profiles[wifi_active_index].password, sizeof(sta_config.sta.password) - 1);
+    }
 
     esp_err_t err = esp_wifi_stop();
     if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
@@ -876,8 +1066,24 @@ static esp_err_t audio_stream_handler(httpd_req_t *req) {
         if (item && item_size > 0) {
             memcpy(buffer, item, item_size);
             vRingbufferReturnItem(audio_ringbuf, item);
-            if (httpd_resp_send_chunk(req, (const char *)buffer, item_size) != ESP_OK) {
-                break;
+            esp_err_t send_err = httpd_resp_send_chunk(req, (const char *)buffer, item_size);
+            if (send_err != ESP_OK) {
+                /* Short backpressure window: avoid tearing down the stream on transient EAGAIN. */
+                bool recovered = false;
+                for (int retry = 0; retry < 6; retry++) {
+                    if (errno != EAGAIN && errno != 11) {
+                        break;
+                    }
+                    vTaskDelay(TICKS_AT_LEAST_1(4));
+                    send_err = httpd_resp_send_chunk(req, (const char *)buffer, item_size);
+                    if (send_err == ESP_OK) {
+                        recovered = true;
+                        break;
+                    }
+                }
+                if (!recovered && send_err != ESP_OK) {
+                    break;
+                }
             }
             chunks++;
             pcm_out += item_size;
@@ -993,22 +1199,56 @@ static esp_err_t led_api_options_handler(httpd_req_t *req) {
 static esp_err_t network_status_get_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        return httpd_resp_send_500(req);
+    }
     esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-    if (!sta) {
-        return httpd_resp_send(req, "{\"sta_ip\":\"\"}", HTTPD_RESP_USE_STRLEN);
-    }
+    char ip_buf[24] = "";
+    char ssid_buf[33] = "";
+    bool sta_connected = false;
     esp_netif_ip_info_t ip_info;
-    if (esp_netif_get_ip_info(sta, &ip_info) != ESP_OK || ip_info.ip.addr == 0) {
-        return httpd_resp_send(req, "{\"sta_ip\":\"\"}", HTTPD_RESP_USE_STRLEN);
+    if (sta && esp_netif_get_ip_info(sta, &ip_info) == ESP_OK && ip_info.ip.addr != 0) {
+        snprintf(ip_buf, sizeof(ip_buf), IPSTR, IP2STR(&ip_info.ip));
     }
-    char buf[80];
-    snprintf(buf, sizeof(buf), "{\"sta_ip\":\"" IPSTR "\"}", IP2STR(&ip_info.ip));
-    return httpd_resp_send(req, buf, HTTPD_RESP_USE_STRLEN);
+    wifi_ap_record_t ap = {0};
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        sta_connected = true;
+        strncpy(ssid_buf, (const char *)ap.ssid, sizeof(ssid_buf) - 1);
+    }
+    cJSON_AddStringToObject(root, "sta_ip", ip_buf);
+    cJSON_AddBoolToObject(root, "sta_connected", sta_connected);
+    cJSON_AddStringToObject(root, "sta_ssid", ssid_buf);
+    cJSON_AddNumberToObject(root, "active_index", wifi_active_index);
+    cJSON_AddNumberToObject(root, "connected_index", wifi_connected_index);
+    cJSON_AddNumberToObject(root, "profile_count", wifi_profile_count);
+    cJSON *arr = cJSON_AddArrayToObject(root, "known_networks");
+    for (int i = 0; i < wifi_profile_count && i < WIFI_PROFILE_MAX; i++) {
+        if (!wifi_profiles[i].used || wifi_profiles[i].ssid[0] == '\0') {
+            continue;
+        }
+        cJSON *item = cJSON_CreateObject();
+        if (!item) {
+            continue;
+        }
+        cJSON_AddNumberToObject(item, "index", i);
+        cJSON_AddStringToObject(item, "ssid", wifi_profiles[i].ssid);
+        cJSON_AddBoolToObject(item, "is_active", i == wifi_active_index);
+        cJSON_AddItemToArray(arr, item);
+    }
+    char *out = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    if (!out) {
+        return httpd_resp_send_500(req);
+    }
+    esp_err_t res = httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+    free(out);
+    return res;
 }
 
 static esp_err_t network_status_options_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
@@ -1055,6 +1295,81 @@ static int led_http_read_body(httpd_req_t *req, char *out, size_t cap) {
     }
     out[got] = '\0';
     return got;
+}
+
+static esp_err_t network_profiles_post_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_type(req, "application/json");
+    char body[1400];
+    int got = led_http_read_body(req, body, sizeof(body));
+    if (got <= 0) {
+        return httpd_resp_send(req, "{\"ok\":false,\"error\":\"invalid_body\"}", HTTPD_RESP_USE_STRLEN);
+    }
+    cJSON *root = cJSON_Parse(body);
+    if (!root) {
+        return httpd_resp_send(req, "{\"ok\":false,\"error\":\"invalid_json\"}", HTTPD_RESP_USE_STRLEN);
+    }
+    cJSON *arr = cJSON_GetObjectItemCaseSensitive(root, "networks");
+    if (!cJSON_IsArray(arr)) {
+        cJSON_Delete(root);
+        return httpd_resp_send(req, "{\"ok\":false,\"error\":\"networks_array_required\"}", HTTPD_RESP_USE_STRLEN);
+    }
+    wifi_profile_t incoming[WIFI_PROFILE_MAX];
+    memset(incoming, 0, sizeof(incoming));
+    int incoming_count = 0;
+    int active_idx = 0;
+    int arr_sz = cJSON_GetArraySize(arr);
+    for (int i = 0; i < arr_sz && incoming_count < WIFI_PROFILE_MAX; i++) {
+        cJSON *item = cJSON_GetArrayItem(arr, i);
+        if (!cJSON_IsObject(item)) {
+            continue;
+        }
+        cJSON *jssid = cJSON_GetObjectItemCaseSensitive(item, "ssid");
+        cJSON *jpwd = cJSON_GetObjectItemCaseSensitive(item, "password");
+        cJSON *jactive = cJSON_GetObjectItemCaseSensitive(item, "is_active");
+        const char *ssid = cJSON_IsString(jssid) ? jssid->valuestring : "";
+        const char *pwd = cJSON_IsString(jpwd) ? jpwd->valuestring : "";
+        if (!ssid || strlen(ssid) == 0) {
+            continue;
+        }
+        incoming[incoming_count].used = true;
+        strncpy(incoming[incoming_count].ssid, ssid, sizeof(incoming[incoming_count].ssid) - 1);
+        strncpy(incoming[incoming_count].password, pwd ? pwd : "", sizeof(incoming[incoming_count].password) - 1);
+        if (cJSON_IsTrue(jactive)) {
+            active_idx = incoming_count;
+        }
+        incoming_count++;
+    }
+    cJSON *jactive_idx = cJSON_GetObjectItemCaseSensitive(root, "active_index");
+    if (cJSON_IsNumber(jactive_idx)) {
+        int req_idx = (int)cJSON_GetNumberValue(jactive_idx);
+        if (req_idx >= 0 && req_idx < incoming_count) {
+            active_idx = req_idx;
+        }
+    }
+    cJSON_Delete(root);
+    if (incoming_count <= 0) {
+        return httpd_resp_send(req, "{\"ok\":false,\"error\":\"no_valid_networks\"}", HTTPD_RESP_USE_STRLEN);
+    }
+
+    portENTER_CRITICAL(&wifi_mux);
+    memset(wifi_profiles, 0, sizeof(wifi_profiles));
+    for (int i = 0; i < incoming_count; i++) {
+        wifi_profiles[i] = incoming[i];
+    }
+    wifi_profile_count = incoming_count;
+    wifi_active_index = active_idx;
+    wifi_retry_same = 0;
+    portEXIT_CRITICAL(&wifi_mux);
+    wifi_profiles_save_to_nvs();
+
+    if (wifi_apply_profile_index(active_idx) == ESP_OK) {
+        esp_wifi_connect();
+    }
+
+    char out[160];
+    snprintf(out, sizeof(out), "{\"ok\":true,\"profile_count\":%d,\"active_index\":%d}", incoming_count, active_idx);
+    return httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t led_api_post_handler(httpd_req_t *req) {
@@ -1538,6 +1853,7 @@ static esp_err_t audio_inject_post_handler(httpd_req_t *req) {
         free(buf);
         return httpd_resp_send(req, "{\"ok\":false,\"error\":\"empty_payload\"}", HTTPD_RESP_USE_STRLEN);
     }
+    inject_http_posts_total++;
     BaseType_t ok_local = xRingbufferSend(playback_ringbuf_local, buf, (size_t)got, pdMS_TO_TICKS(100));
     BaseType_t ok_bt = pdTRUE;
 #if CONFIG_BT_ENABLED
@@ -1547,7 +1863,11 @@ static esp_err_t audio_inject_post_handler(httpd_req_t *req) {
 #endif
     inject_playback_deadline_ms = esp_log_timestamp() + 1500;
     free(buf);
-    if (ok_local != pdTRUE || ok_bt != pdTRUE) return httpd_resp_send(req, "{\"ok\":true,\"dropped\":true}", HTTPD_RESP_USE_STRLEN);
+    if (ok_local != pdTRUE || ok_bt != pdTRUE) {
+        inject_http_posts_dropped++;
+        return httpd_resp_send(req, "{\"ok\":true,\"dropped\":true}", HTTPD_RESP_USE_STRLEN);
+    }
+    inject_http_bytes_accepted += (uint32_t)got;
     return httpd_resp_send(req, "{\"ok\":true}", HTTPD_RESP_USE_STRLEN);
 }
 
@@ -1557,6 +1877,67 @@ static esp_err_t audio_inject_options_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
+}
+
+static size_t drain_ringbuf_bytes(RingbufHandle_t rb) {
+    if (!rb) return 0;
+    size_t drained = 0;
+    for (int i = 0; i < 2048; i++) {
+        size_t item_size = 0;
+        void *item = xRingbufferReceiveUpTo(rb, &item_size, 0, PLAYBACK_PUSH_MAX * sizeof(int16_t));
+        if (!item) {
+            break;
+        }
+        drained += item_size;
+        vRingbufferReturnItem(rb, item);
+    }
+    return drained;
+}
+
+static esp_err_t audio_inject_flush_post_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_type(req, "application/json");
+    size_t local_drained = drain_ringbuf_bytes(playback_ringbuf_local);
+    size_t bt_drained = 0;
+#if CONFIG_BT_ENABLED
+    bt_drained = drain_ringbuf_bytes(playback_ringbuf_bt);
+#endif
+    inject_playback_deadline_ms = 0;
+    inject_http_bytes_accepted = inject_playback_bytes_consumed;
+    inject_playback_fifo_level = 0;
+    char out[180];
+    snprintf(
+        out,
+        sizeof(out),
+        "{\"ok\":true,\"flushed_local\":%u,\"flushed_bt\":%u}",
+        (unsigned)local_drained,
+        (unsigned)bt_drained
+    );
+    return httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t audio_inject_status_get_handler(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_type(req, "application/json");
+    uint32_t accepted = inject_http_bytes_accepted;
+    uint32_t consumed = inject_playback_bytes_consumed;
+    uint32_t backlog = (accepted >= consumed) ? (accepted - consumed) : 0;
+    char out[320];
+    snprintf(
+        out,
+        sizeof(out),
+        "{\"ok\":true,\"posts_total\":%u,\"posts_dropped\":%u,\"bytes_accepted\":%u,\"bytes_consumed\":%u,\"queue_bytes_est\":%u,\"fifo_level\":%u,\"underruns\":%u,\"deadline_ms\":%u,\"ts_ms\":%u}",
+        (unsigned)inject_http_posts_total,
+        (unsigned)inject_http_posts_dropped,
+        (unsigned)accepted,
+        (unsigned)consumed,
+        (unsigned)backlog,
+        (unsigned)inject_playback_fifo_level,
+        (unsigned)inject_playback_underruns,
+        (unsigned)inject_playback_deadline_ms,
+        (unsigned)esp_log_timestamp()
+    );
+    return httpd_resp_send(req, out, HTTPD_RESP_USE_STRLEN);
 }
 
 #define AUDIO_JSON_POST_MAX 256
@@ -1646,7 +2027,7 @@ static void start_webserver(void) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     /* We expose many API endpoints; default handler slots are too low and
        silently drop later registrations (causing 404 on valid routes). */
-    config.max_uri_handlers = 36;
+    config.max_uri_handlers = 40;
     config.stack_size = 12288;
     httpd_handle_t server = NULL;
     if (httpd_start(&server, &config) == ESP_OK) {
@@ -1671,6 +2052,9 @@ static void start_webserver(void) {
         httpd_uri_t bt_opts_auto = { .uri = "/api/bluetooth/auto", .method = HTTP_OPTIONS, .handler = bt_api_options_handler };
         httpd_uri_t audio_inject = { .uri = "/api/audio/inject", .method = HTTP_POST, .handler = audio_inject_post_handler };
         httpd_uri_t audio_inject_opts = { .uri = "/api/audio/inject", .method = HTTP_OPTIONS, .handler = audio_inject_options_handler };
+        httpd_uri_t audio_inject_flush = { .uri = "/api/audio/inject/flush", .method = HTTP_POST, .handler = audio_inject_flush_post_handler };
+        httpd_uri_t audio_inject_flush_opts = { .uri = "/api/audio/inject/flush", .method = HTTP_OPTIONS, .handler = audio_inject_options_handler };
+        httpd_uri_t audio_inject_status = { .uri = "/api/audio/inject/status", .method = HTTP_GET, .handler = audio_inject_status_get_handler };
         httpd_uri_t audio_out_vol_get = { .uri = "/api/audio/output-volume", .method = HTTP_GET, .handler = audio_output_vol_get_handler };
         httpd_uri_t audio_out_vol_post = { .uri = "/api/audio/output-volume", .method = HTTP_POST, .handler = audio_output_vol_post_handler };
         httpd_uri_t audio_out_vol_opts = { .uri = "/api/audio/output-volume", .method = HTTP_OPTIONS, .handler = audio_output_vol_options_handler };
@@ -1678,6 +2062,8 @@ static void start_webserver(void) {
         httpd_uri_t audio_push_cue_opts = { .uri = "/api/audio/push-cue", .method = HTTP_OPTIONS, .handler = audio_push_cue_options_handler };
         httpd_uri_t net_status = { .uri = "/api/network/status", .method = HTTP_GET, .handler = network_status_get_handler };
         httpd_uri_t net_status_opts = { .uri = "/api/network/status", .method = HTTP_OPTIONS, .handler = network_status_options_handler };
+        httpd_uri_t net_profiles = { .uri = "/api/network/profiles", .method = HTTP_POST, .handler = network_profiles_post_handler };
+        httpd_uri_t net_profiles_opts = { .uri = "/api/network/profiles", .method = HTTP_OPTIONS, .handler = network_status_options_handler };
         #define REG_URI(u) do { \
             esp_err_t _re = httpd_register_uri_handler(server, &(u)); \
             if (_re != ESP_OK) ESP_LOGE(TAG, "uri register failed: %s (%d)", (u).uri, (int)_re); \
@@ -1694,6 +2080,8 @@ static void start_webserver(void) {
         REG_URI(bt_pref_clear);
         REG_URI(bt_auto);
         REG_URI(audio_inject);
+        REG_URI(audio_inject_flush);
+        REG_URI(audio_inject_status);
         REG_URI(bt_opts_root);
         REG_URI(bt_opts_status);
         REG_URI(bt_opts_find);
@@ -1703,6 +2091,7 @@ static void start_webserver(void) {
         REG_URI(bt_opts_pref_clear);
         REG_URI(bt_opts_auto);
         REG_URI(audio_inject_opts);
+        REG_URI(audio_inject_flush_opts);
         REG_URI(audio_out_vol_get);
         REG_URI(audio_out_vol_post);
         REG_URI(audio_out_vol_opts);
@@ -1710,8 +2099,10 @@ static void start_webserver(void) {
         REG_URI(audio_push_cue_opts);
         REG_URI(net_status);
         REG_URI(net_status_opts);
+        REG_URI(net_profiles);
+        REG_URI(net_profiles_opts);
         #undef REG_URI
-        ESP_LOGI(TAG, "HTTP server on port 80 (/api/audio/stream, /api/led, /api/network/status)");
+        ESP_LOGI(TAG, "HTTP server on port 80 (/api/audio/stream, /api/led, /api/network/status, /api/network/profiles)");
     }
 }
 
@@ -1767,10 +2158,12 @@ static void playback_task(void *arg) {
                 break;
             }
         }
+        inject_playback_fifo_level = (uint32_t)fifo_len;
 
         if (!primed) {
             if (fifo_len < PLAYBACK_PREBUFFER_BYTES) {
-                vTaskDelay(pdMS_TO_TICKS(2));
+                /* Avoid starving IDLE1 while waiting for first playable prebuffer. */
+                vTaskDelay(TICKS_AT_LEAST_1(8));
                 continue;
             }
             primed = true;
@@ -1792,7 +2185,7 @@ static void playback_task(void *arg) {
             void *wait_item = xRingbufferReceiveUpTo(
                 playback_ringbuf_local,
                 &wait_item_size,
-                pdMS_TO_TICKS(6),
+                TICKS_AT_LEAST_1(6),
                 PLAYBACK_PUSH_MAX * sizeof(int16_t)
             );
             if (wait_item && wait_item_size >= sizeof(int16_t)) {
@@ -1850,7 +2243,9 @@ static void playback_task(void *arg) {
         if (fifo_len >= PLAYBACK_FRAME_BYTES) {
             fifo_len -= PLAYBACK_FRAME_BYTES;
             fifo_head = (fifo_head + PLAYBACK_FRAME_BYTES) % PLAYBACK_FIFO_BYTES;
+            inject_playback_bytes_consumed += PLAYBACK_FRAME_BYTES;
         } else {
+            inject_playback_underruns++;
             if (now_ms >= underrun_log_at_ms) {
                 underrun_log_at_ms = now_ms + 2000;
                 ESP_LOGW(TAG, "playback underrun (fifo=%u bytes)", (unsigned)fifo_len);
@@ -1915,7 +2310,7 @@ void app_main(void) {
     led_state.on = true;
     led_state.preset = 2;
     led_state.b = 255;
-    led_state.brightness = 12;
+    led_state.brightness = 56;
     
     ESP_LOGI(TAG, "Create LED task");
     xTaskCreatePinnedToCore(led_task, "led_task", 4096, NULL, 5, NULL, 1);
@@ -1923,16 +2318,7 @@ void app_main(void) {
     ESP_LOGI(TAG, "LED task created");
 
     if (strlen(KORVO_WIFI_SSID) == 0) {
-        ESP_LOGW(TAG, "KORVO_WIFI_SSID is empty — add/activate WiFi in Korvo server UI, then flash so korvo_config.h is updated.");
-        led_state.on = true;
-        led_state.preset = 1;
-        led_state.r = 255;
-        led_state.g = 0;
-        led_state.b = 0;
-        led_state.brightness = 12;
-        while (1) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-        }
+        ESP_LOGW(TAG, "Build-time WiFi is empty; runtime profiles can still be provisioned via /api/network/profiles.");
     }
 
     ESP_LOGI(TAG, "Init WiFi");
@@ -2004,10 +2390,9 @@ void app_main(void) {
     }
     bool was_streaming = false;
     while (1) {
-        if (esp_log_timestamp() < inject_playback_deadline_ms) {
-            vTaskDelay(pdMS_TO_TICKS(4));
-            continue;
-        }
+        /* Keep microphone capture running continuously even during TTS inject playback.
+         * Echo suppression is handled server-side; hard-pausing capture here can starve ASR.
+         */
         if (!stream_client_connected) {
             if (was_streaming) {
                 was_streaming = false;
@@ -2087,8 +2472,8 @@ void app_main(void) {
                     }
                 }
             }
-            if (xSemaphoreTake(stream_mutex, pdMS_TO_TICKS(5))) {
-                if (xRingbufferSend(audio_ringbuf, mono_buf, (size_t)AUDIO_CHUNK_SIZE * sizeof(int16_t), pdMS_TO_TICKS(5)) != pdTRUE) {
+            if (xSemaphoreTake(stream_mutex, TICKS_AT_LEAST_1(5))) {
+                if (xRingbufferSend(audio_ringbuf, mono_buf, (size_t)AUDIO_CHUNK_SIZE * sizeof(int16_t), TICKS_AT_LEAST_1(5)) != pdTRUE) {
                     static uint32_t rb_drop;
                     if ((++rb_drop % 125u) == 0u) {
                         ESP_LOGW(TAG, "audio ringbuf full — dropping chunks (HTTP client slow?)");
@@ -2102,6 +2487,7 @@ void app_main(void) {
                 ESP_LOGW(TAG, "esp_get_feed_data failed while streaming: %d", (int)result);
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(1));
+        /* Keep CPU0 schedulable under mixed stream+inject pressure (prevents IDLE0 watchdog trips). */
+        vTaskDelay(TICKS_AT_LEAST_1(2));
     }
 }

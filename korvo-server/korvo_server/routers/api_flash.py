@@ -25,6 +25,84 @@ class FlashBody(BaseModel):
     clean_before_build: bool = False
 
 
+class ResetBody(BaseModel):
+    port: str
+
+
+def _normalize_serial_port(raw: str) -> str:
+    candidate = (raw or "").strip()
+    if not candidate:
+        return ""
+    port = candidate if candidate.startswith("/dev/") else f"/dev/{candidate}"
+    port_ok = bool(re.match(r"^/dev/cu\.[^/]+$", port) or re.match(r"^/dev/tty(USB|ACM)[0-9]+$", port))
+    return port if port_ok else ""
+
+
+def _force_reset_with_serial_pulse(port: str, spawn_env: dict[str, str]) -> tuple[bool, str]:
+    pulse_code = (
+        "import sys,time\n"
+        "import serial\n"
+        "p=sys.argv[1]\n"
+        "s=serial.Serial(p,115200,timeout=0.2)\n"
+        "s.dtr=False\n"
+        "s.rts=True\n"
+        "time.sleep(0.12)\n"
+        "s.rts=False\n"
+        "time.sleep(0.12)\n"
+        "s.close()\n"
+        "print('reset_pulse_sent')\n"
+    )
+    try:
+        proc = subprocess.run(
+            ["python3", "-c", pulse_code, port],
+            cwd=str(REPO_ROOT),
+            env=spawn_env,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception as e:
+        return False, f"serial_pulse_exception: {e}"
+    if proc.returncode == 0:
+        return True, (proc.stdout or "reset_pulse_sent").strip()
+    err = (proc.stderr or proc.stdout or "").strip()
+    return False, f"serial_pulse_failed: {err}"
+
+
+def _force_reset_with_esptool(port: str, spawn_env: dict[str, str]) -> tuple[bool, str]:
+    idf_home = spawn_env.get("IDF_PATH") or str(Path(spawn_env.get("HOME", os.environ.get("HOME", ""))) / "esp" / "esp-idf")
+    esp_tool = Path(idf_home) / "components" / "esptool_py" / "esptool" / "esptool.py"
+    if not esp_tool.is_file():
+        return False, f"esptool_not_found: {esp_tool}"
+    try:
+        proc = subprocess.run(
+            [
+                "python3",
+                str(esp_tool),
+                "--chip",
+                "auto",
+                "-p",
+                port,
+                "--before",
+                "default_reset",
+                "--after",
+                "hard_reset",
+                "chip_id",
+            ],
+            cwd=str(REPO_ROOT),
+            env=spawn_env,
+            capture_output=True,
+            text=True,
+            timeout=16,
+        )
+    except Exception as e:
+        return False, f"esptool_exception: {e}"
+    if proc.returncode == 0:
+        return True, "esptool_reset_sent"
+    err = (proc.stderr or proc.stdout or "").strip()
+    return False, f"esptool_failed: {err}"
+
+
 def _sse(event: str, data: object) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n".encode()
 
@@ -226,4 +304,27 @@ async def flash_stream(body: FlashBody, kdb: KorvoDep):
         events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/flash/reset")
+def flash_force_reset(body: ResetBody):
+    port = _normalize_serial_port(body.port)
+    if not port:
+        raise HTTPException(400, "Select a valid serial port (/dev/cu.* or /dev/ttyUSB*).")
+    spawn_env = get_flash_spawn_env()
+    ok, detail = _force_reset_with_serial_pulse(port, spawn_env)
+    if ok:
+        return {"success": True, "port": port, "method": "serial_pulse", "detail": detail}
+    ok2, detail2 = _force_reset_with_esptool(port, spawn_env)
+    if ok2:
+        return {"success": True, "port": port, "method": "esptool", "detail": detail2, "fallback_from": detail}
+    raise HTTPException(
+        500,
+        {
+            "message": "Force reset failed.",
+            "port": port,
+            "serial_pulse_error": detail,
+            "esptool_error": detail2,
+        },
     )

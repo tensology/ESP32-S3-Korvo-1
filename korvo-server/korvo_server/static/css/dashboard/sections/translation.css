@@ -1,1 +1,41 @@
 /* translation section styles (modularized) */
+.translation-auto-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+  overflow-x: auto;
+}
+
+.translation-auto-playback {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.translation-auto-playback label {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #b5b5b5;
+  white-space: nowrap;
+}
+
+.translation-auto-playback select {
+  width: auto;
+  min-width: 180px;
+  max-width: 260px;
+}
+
+.translation-auto-toolbar #translationAutoTranscribeStatus {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.translation-auto-status {
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0.28rem 0.62rem;
+}

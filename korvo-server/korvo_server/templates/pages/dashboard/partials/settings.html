@@ -7,29 +7,27 @@
           <label>Wake Word</label>
           <input type="text" id="wakeWord" value="hilexin" placeholder="e.g. hilexin, hiesp">
         </div>
-        <div class="field">
-          <label>Server Port (on ESP32)</label>
-          <input type="text" id="serverPort" value="80" placeholder="80">
-        </div>
         <div class="field full">
-          <label>ESP32 IP Address (for LED control)</label>
-          <input type="text" id="espIpInput" value="korvo.local" placeholder="korvo.local or 192.168.x.x">
+          <div class="settings-host-inline">
+            <label for="espIpInput">Host:</label>
+            <input type="text" id="espIpInput" value="korvo.local" placeholder="korvo.local or 192.168.x.x">
+            <button type="button" class="btn-secondary settings-detect-btn" onclick="detectBoardIp()">Detect IP</button>
+            <div id="espIpResolvedStatus" class="settings-host-helper">
+              Resolution: waiting for board status...
+            </div>
+          </div>
         </div>
         <div class="field full">
           <label>Agent Endpoint (after WiFi connect)</label>
           <input type="text" id="agentEndpoint" placeholder="http://192.168.x.x:3000/agent">
         </div>
-        <div class="field">
-          <label>LED Brightness (0-255)</label>
-          <input type="text" id="settingsLedBrightness" value="12" placeholder="12">
-        </div>
-        <div class="field">
-          <label>Volume (0-100)</label>
-          <input type="text" id="volume" value="70" placeholder="70">
-        </div>
       </div>
-      <div class="btn-row">
-        <button class="btn-secondary" onclick="saveSettings()">Save Settings</button>
+      <div class="btn-row settings-save-row">
+        <button type="button" class="btn-primary settings-save-btn" onclick="saveSettings()">Save Settings</button>
+      </div>
+      <div class="btn-row settings-reset-row">
+        <button type="button" class="btn-secondary settings-reset-btn" id="forceResetBtn" onclick="forceResetBoard()">Force Reset Board</button>
+        <div id="settingsResetStatus" class="settings-reset-status">Reset uses selected serial port from Build tab (or auto-detect).</div>
       </div>
     </div>
     </div>

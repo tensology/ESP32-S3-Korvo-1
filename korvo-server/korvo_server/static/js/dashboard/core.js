@@ -6,58 +6,192 @@
       setTimeout(() => el.classList.remove('show'), 2500);
     }
 
+    let preloaderWatchdogTimer = null;
+
+    function hideDashboardPreloader() {
+      const preloader = document.getElementById('pagePreloader');
+      if (!preloader) return;
+      if (preloaderWatchdogTimer) {
+        clearTimeout(preloaderWatchdogTimer);
+        preloaderWatchdogTimer = null;
+      }
+      preloader.classList.add('fade-out');
+      setTimeout(() => {
+        preloader.classList.remove('active');
+        preloader.setAttribute('aria-hidden', 'true');
+      }, 240);
+    }
+
+    function startDashboardPreloaderWatchdog() {
+      const preloader = document.getElementById('pagePreloader');
+      if (!preloader) return;
+      preloaderWatchdogTimer = setTimeout(() => {
+        const text = document.getElementById('pagePreloaderText');
+        if (text) text.textContent = 'Still loading... almost there.';
+        hideDashboardPreloader();
+      }, 12000);
+    }
+
     // ─── Scan Networks ───
+    let lastLoadedActiveSsid = '';
+    let pendingDeleteNetworkId = null;
+    let wifiBoardConnectedSsid = '';
+    let wifiRuntimeCachedAt = 0;
+    let wifiRuntimeCachedData = null;
+    let wifiRuntimeInFlight = null;
+
+    async function fetchWifiRuntime(force = false) {
+      const now = Date.now();
+      if (!force && wifiRuntimeCachedData && (now - wifiRuntimeCachedAt) < 1500) {
+        return wifiRuntimeCachedData;
+      }
+      if (!force && wifiRuntimeInFlight) {
+        return wifiRuntimeInFlight;
+      }
+      wifiRuntimeInFlight = (async () => {
+        const res = await fetch('/api/wifi/runtime');
+        const data = await res.json().catch(() => ({}));
+        wifiRuntimeCachedData = data;
+        wifiRuntimeCachedAt = Date.now();
+        return data;
+      })();
+      try {
+        return await wifiRuntimeInFlight;
+      } finally {
+        wifiRuntimeInFlight = null;
+      }
+    }
+
+    function openWifiScanModal() {
+      const modal = document.getElementById('wifiScanModal');
+      if (!modal) return;
+      modal.classList.add('active');
+    }
+
+    function closeWifiScanModal() {
+      const modal = document.getElementById('wifiScanModal');
+      if (!modal) return;
+      modal.classList.remove('active');
+    }
+
+    function openWifiDeleteModal(id, ssid) {
+      pendingDeleteNetworkId = id;
+      const modal = document.getElementById('wifiDeleteModal');
+      const text = document.getElementById('wifiDeleteModalText');
+      if (text) text.textContent = `Remove "${ssid}" from saved networks?`;
+      if (modal) modal.classList.add('active');
+    }
+
+    function closeWifiDeleteModal() {
+      pendingDeleteNetworkId = null;
+      const modal = document.getElementById('wifiDeleteModal');
+      if (modal) modal.classList.remove('active');
+    }
+
     async function scanNetworks() {
       const btn = document.getElementById('scanBtn');
-      const badge = document.getElementById('wifiBadge');
       btn.disabled = true; btn.textContent = 'Scanning…';
-      badge.className = 'badge scanning'; badge.textContent = 'Scanning';
 
       try {
         const res = await fetch('/api/networks?source=mac');
         const data = await res.json();
-        const list = document.getElementById('networkList');
-        document.getElementById('scanResults').style.display = 'block';
+        const list = document.getElementById('wifiScanModalList');
+        const hint = document.getElementById('wifiScanModalHint');
         list.innerHTML = '';
+        if (hint) hint.textContent = '';
 
         if (data.networks.length === 0) {
-          list.innerHTML = `
-            <li style="padding:1rem;color:#888;font-size:0.85rem">
-              <div style="margin-bottom:0.75rem">⚠️ macOS hides WiFi SSIDs for privacy. To enable scanning:</div>
-              <div style="background:#0d0d0d;border:1px solid #1a1a1a;border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;font-size:0.8rem;line-height:1.6">
-                <div style="color:#e74c3c;font-weight:600;margin-bottom:0.4rem">Enable Location Services for WiFi scan:</div>
-                1. Open <strong>System Settings → Privacy & Security → Location Services</strong><br>
-                2. Turn on Location Services<br>
-                3. Find <strong>KorvoWiFiScanner</strong> or <strong>Terminal</strong> in the list<br>
-                4. Check the box to allow location access<br>
-                5. Click Scan again
-              </div>
-              <div style="color:#4caf50;font-weight:600;margin-bottom:0.5rem">Or just type your WiFi name below ↓</div>
-              <div style="font-size:0.8rem;color:#666">Click the SSID field — saved networks appear as suggestions</div>
-            </li>`;
+          list.innerHTML = '<li style="padding:1rem;color:#888;font-size:0.85rem">No nearby networks found. You can still type SSID manually.</li>';
+          if (hint) hint.textContent = 'macOS may hide SSIDs unless Location Services permission is enabled.';
         } else {
-          list.innerHTML = '<div style="padding:0.5rem;font-size:0.75rem;color:#4caf50">Found ' + data.networks.length + ' networks nearby</div>';
+          const hasLocalFallback = data.networks.some(n => n.source === 'mac_local');
+          const modalTitle = hasLocalFallback
+            ? ('Loaded ' + data.networks.length + ' networks from this Mac (scan permission unavailable)')
+            : ('Found ' + data.networks.length + ' networks nearby');
+          if (hint) hint.textContent = modalTitle;
           data.networks.forEach(n => {
-            const strength = n.rssi > -50 ? 'strong' : n.rssi > -70 ? 'medium' : 'weak';
+            const hasSignal = typeof n.rssi === 'number' && n.rssi > -200;
+            const strength = !hasSignal ? 'weak' : n.rssi > -50 ? 'strong' : n.rssi > -70 ? 'medium' : 'weak';
+            const signalLabel = hasSignal ? String(n.rssi) : 'saved';
+            const securityLabel = n.source === 'mac_local' ? '' : (n.security || '');
             const li = document.createElement('li');
             li.className = 'network-item';
             li.innerHTML = `
-              <span class="signal ${strength}">${n.rssi}</span>
+              <span class="signal ${strength}">${signalLabel}</span>
               <span class="ssid">${n.ssid}</span>
-              <span class="security">${n.security || ''}</span>
+              <span class="security">${securityLabel}</span>
+              <button type="button" class="btn-primary wifi-scan-connect-btn">Connect</button>
             `;
-            li.onclick = () => {
+            const connect = () => {
               document.getElementById('ssid').value = n.ssid;
               document.getElementById('password').value = '';
               document.getElementById('password').focus();
+              closeWifiScanModal();
             };
+            const btn = li.querySelector('button');
+            if (btn) {
+              btn.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                connect();
+              });
+            }
             list.appendChild(li);
           });
         }
+        openWifiScanModal();
       } catch (e) { toast('Scan failed', 'error'); }
 
       btn.disabled = false; btn.textContent = 'Scan';
       loadWifi();
+    }
+
+    async function testWifiConnection() {
+      const btn = document.getElementById('testWifiBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Testing…';
+      }
+      try {
+        const targetSsid = (document.getElementById('ssid').value || '').trim();
+        const data = await fetchWifiRuntime(true);
+        const runtimeEl = document.getElementById('wifiRuntimeStatus');
+        const resolutionEl = document.getElementById('espIpResolvedStatus');
+        if (!data.ok || !data.status) {
+          wifiBoardConnectedSsid = '';
+          loadWifi();
+          if (runtimeEl) runtimeEl.textContent = formatWifiRuntimeStatus(data);
+          if (resolutionEl) resolutionEl.textContent = formatEspResolutionStatus(data);
+          const host = (data && data.host) ? String(data.host) : '';
+          toast(`Board unreachable${host ? ` (${host})` : ''}`, 'error');
+          return;
+        }
+        if (runtimeEl) runtimeEl.textContent = formatWifiRuntimeStatus(data);
+        if (resolutionEl) resolutionEl.textContent = formatEspResolutionStatus(data);
+        const s = data.status || {};
+        const connected = (typeof s.sta_connected === 'boolean') ? s.sta_connected : !!(s.sta_ip && String(s.sta_ip).trim());
+        wifiBoardConnectedSsid = connected ? String(s.sta_ssid || '').trim() : '';
+        loadWifi();
+        if (!connected) {
+          toast('Board reachable, but not connected to WiFi', 'error');
+          return;
+        }
+        const boardSsid = String(s.sta_ssid || '').trim();
+        const boardIp = String(s.sta_ip || '').trim();
+        if (targetSsid && boardSsid && targetSsid !== boardSsid) {
+          toast(`Board connected to ${boardSsid} (not ${targetSsid})`, 'error');
+          return;
+        }
+        toast(`Board connected: ${boardSsid || 'unknown SSID'} (${boardIp || 'no IP'})`);
+        fetch('/api/wifi/test-board-cue', { method: 'POST' }).catch(() => {});
+      } catch (_) {
+        toast('Board connection test failed', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Test Board';
+        }
+      }
     }
 
     // ─── Save WiFi ───
@@ -87,7 +221,11 @@
         toast(data.detail || data.message || `Save failed (${res.status})`, 'error');
         return;
       }
-      if (data.success) { toast('WiFi config saved!'); loadWifi(); }
+      if (data.success) {
+        const savedMsg = data.updated ? 'WiFi updated' : 'WiFi saved';
+        toast(`${savedMsg} (board sync in background)`);
+        loadWifi();
+      }
       else toast('Save failed', 'error');
     }
 
@@ -95,17 +233,19 @@
     async function loadWifi() {
       const res = await fetch('/api/wifi');
       const data = await res.json();
-      const badge = document.getElementById('wifiBadge');
+      const ssidInput = document.getElementById('ssid');
 
       if (data.active) {
-        document.getElementById('ssid').value = data.active.ssid;
+        const currentInput = (ssidInput && ssidInput.value) ? ssidInput.value.trim() : '';
+        const canOverwrite = !currentInput || currentInput === lastLoadedActiveSsid;
+        if (ssidInput && canOverwrite) {
+          ssidInput.value = data.active.ssid;
+        }
+        lastLoadedActiveSsid = data.active.ssid;
         document.getElementById('password').value = '';
         document.getElementById('password').placeholder = '•••••••• (saved)';
-        badge.className = 'badge connected';
-        badge.textContent = data.active.ssid;
       } else {
-        badge.className = 'badge disconnected';
-        badge.textContent = 'Not configured';
+        lastLoadedActiveSsid = '';
       }
 
       const savedDiv = document.getElementById('savedNetworks');
@@ -124,13 +264,15 @@
           ssidList.appendChild(opt);
 
           // Add to saved list
+          const isConnected = !!wifiBoardConnectedSsid && n.ssid === wifiBoardConnectedSsid;
           const div = document.createElement('div');
           div.className = `saved-item ${n.is_active ? 'active' : ''}`;
           div.innerHTML = `
             <span class="ssid">${n.ssid}</span>
-            <span class="status">${n.is_active ? '● Active' : ''}</span>
+            ${isConnected ? '<span class="saved-connection-badge">Connected</span>' : ''}
+            <span class="status ${n.is_active ? 'active' : ''}">${n.is_active ? '● Active' : ''}</span>
             ${n.is_active ? '' : `<button class="btn-danger" onclick="activateNetwork(${n.id})">Set Active</button>`}
-            <button class="btn-danger" onclick="deleteNetwork(${n.id})">✕</button>
+            <button class="btn-danger" onclick="openWifiDeleteModal(${n.id}, decodeURIComponent('${encodeURIComponent(n.ssid)}'))">✕</button>
           `;
           savedList.appendChild(div);
         });
@@ -140,24 +282,103 @@
     }
 
     async function activateNetwork(id) {
-      await fetch(`/api/wifi/${id}/activate`, { method: 'POST' });
-      toast('Network activated'); loadWifi();
+      const res = await fetch(`/api/wifi/${id}/activate`, { method: 'POST' });
+      await res.json().catch(() => ({}));
+      toast('Network activated');
+      loadWifi();
     }
 
-    async function deleteNetwork(id) {
-      await fetch(`/api/wifi/${id}`, { method: 'DELETE' });
-      toast('Network removed'); loadWifi();
+    async function confirmDeleteNetwork() {
+      if (pendingDeleteNetworkId == null) return;
+      const id = pendingDeleteNetworkId;
+      const btn = document.getElementById('wifiDeleteConfirmBtn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Removing…';
+      }
+      const res = await fetch(`/api/wifi/${id}`, { method: 'DELETE' });
+      await res.json().catch(() => ({}));
+      closeWifiDeleteModal();
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Remove';
+      }
+      toast('Network removed');
+      loadWifi();
+    }
+
+    function formatWifiRuntimeStatus(data) {
+      if (!data || !data.ok || !data.status) return 'Board status: offline or unreachable';
+      const s = data.status;
+      const connected = (typeof s.sta_connected === 'boolean') ? s.sta_connected : !!(s.sta_ip && String(s.sta_ip).trim());
+      const ssid = (s.sta_ssid || '').trim();
+      const ip = (s.sta_ip || '').trim();
+      const profileCount = Number.isFinite(Number(s.profile_count)) ? Number(s.profile_count) : 0;
+      if (connected) {
+        return `Board status: connected to ${ssid || 'unknown SSID'} (${ip || 'no IP'}) · ${profileCount} saved profiles`;
+      }
+      return `Board status: not connected · ${profileCount} saved profiles`;
+    }
+
+    async function loadWifiRuntimeStatus() {
+      const el = document.getElementById('wifiRuntimeStatus');
+      if (!el) return;
+      try {
+        const data = await fetchWifiRuntime(false);
+        el.textContent = formatWifiRuntimeStatus(data);
+      } catch (e) {
+        el.textContent = 'Board status: offline or unreachable';
+      }
+    }
+
+    function formatEspResolutionStatus(data) {
+      if (!data || !data.ok || !data.status) return 'Resolution: board unreachable (using configured host)';
+      const s = data.status || {};
+      const activeHost = (data.host || '').trim();
+      const staIp = (s.sta_ip || '').trim();
+      const staSsid = (s.sta_ssid || '').trim();
+      const connected = (typeof s.sta_connected === 'boolean') ? s.sta_connected : !!staIp;
+      if (!connected) {
+        return `Resolution: ${activeHost || 'host'} reachable, STA not connected`;
+      }
+      const ipPart = staIp ? ` -> ${staIp}` : '';
+      const ssidPart = staSsid ? ` (${staSsid})` : '';
+      return `Resolution: ${activeHost || 'host'}${ipPart}${ssidPart}`;
+    }
+
+    async function refreshEspResolutionStatus() {
+      const el = document.getElementById('espIpResolvedStatus');
+      if (!el) return;
+      try {
+        const data = await fetchWifiRuntime(false);
+        el.textContent = formatEspResolutionStatus(data);
+      } catch (_) {
+        el.textContent = 'Resolution: board unreachable (using configured host)';
+      }
+    }
+
+    async function syncWifiToBoard() {
+      try {
+        const res = await fetch('/api/wifi/sync', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (data.success) {
+          toast('Saved networks synced to ESP32');
+        } else {
+          toast('Sync failed (board unreachable)', 'error');
+        }
+      } catch (e) {
+        toast('Sync failed', 'error');
+      }
     }
 
     // ─── Settings ───
     async function loadSettings() {
       const res = await fetch('/api/settings');
       const data = await res.json();
-      if (data.wake_word) document.getElementById('wakeWord').value = data.wake_word;
-      if (data.server_port) document.getElementById('serverPort').value = data.server_port;
-      if (data.agent_endpoint) document.getElementById('agentEndpoint').value = data.agent_endpoint;
-      if (data.led_brightness) document.getElementById('settingsLedBrightness').value = data.led_brightness;
-      if (data.volume) document.getElementById('volume').value = data.volume;
+      const wakeWordEl = document.getElementById('wakeWord');
+      if (data.wake_word && wakeWordEl) wakeWordEl.value = data.wake_word;
+      const agentEndpointEl = document.getElementById('agentEndpoint');
+      if (data.agent_endpoint && agentEndpointEl) agentEndpointEl.value = data.agent_endpoint;
       if (typeof data.assemblyai_api_key === 'string') {
         const aaiEl = document.getElementById('assemblyAiApiKey');
         if (aaiEl) aaiEl.value = data.assemblyai_api_key;
@@ -209,26 +430,31 @@
       if (!host) host = cachedBoardHost;
       if (!host) host = (document.getElementById('espIpInput').value || 'korvo.local').trim();
       host = _normalizeBoardHost(host);
-      if (host.toLowerCase().endsWith('.local') && _isIpv4Host(cachedBoardHost)) {
-        host = cachedBoardHost;
-      }
       document.getElementById('espIpInput').value = host;
       espIp = host;
       localStorage.setItem('korvo_esp_ip', host);
+      if (host.toLowerCase().endsWith('.local')) {
+        localStorage.setItem('korvo_discovery_host', host);
+      }
     }
 
     async function saveSettings() {
-      const espHost = document.getElementById('espIpInput').value.trim();
+      const espHost = _normalizeBoardHost(document.getElementById('espIpInput').value);
+      document.getElementById('espIpInput').value = espHost;
       if (espHost) {
         espIp = espHost;
         localStorage.setItem('korvo_esp_ip', espHost);
+        localStorage.setItem('korvo_board_ip', espHost);
+        if (espHost.toLowerCase().endsWith('.local')) {
+          localStorage.setItem('korvo_discovery_host', espHost);
+        }
+        const boardInput = document.getElementById('boardIp');
+        if (boardInput) boardInput.value = espHost;
       }
       const settings = {
-        wake_word: document.getElementById('wakeWord').value,
-        server_port: document.getElementById('serverPort').value,
-        agent_endpoint: document.getElementById('agentEndpoint').value,
-        led_brightness: document.getElementById('settingsLedBrightness').value,
-        volume: document.getElementById('volume').value,
+        wake_word: (document.getElementById('wakeWord') || {}).value || '',
+        agent_endpoint: (document.getElementById('agentEndpoint') || {}).value || '',
+        esp_ip: espHost,
       };
       await fetch('/api/settings', {
         method: 'POST',
@@ -236,6 +462,105 @@
         body: JSON.stringify(settings),
       });
       toast('Settings saved!');
+      if (espHost) checkLedBoard();
+    }
+
+    async function detectBoardIp() {
+      const currentHost = _normalizeBoardHost(
+        document.getElementById('espIpInput').value
+        || localStorage.getItem('korvo_discovery_host')
+        || espIp
+        || 'korvo.local'
+      ) || 'korvo.local';
+      espIp = currentHost;
+      document.getElementById('espIpInput').value = currentHost;
+      const boardInput = document.getElementById('boardIp');
+      if (boardInput) boardInput.value = currentHost;
+      try {
+        await korvoDiscoverStaIpFromBoard();
+        const detected = _normalizeBoardHost(espIp);
+        if (!detected) {
+          toast('Detect failed — enter board IP manually', 'error');
+          return;
+        }
+        document.getElementById('espIpInput').value = detected;
+        if (boardInput) boardInput.value = detected;
+        localStorage.setItem('korvo_esp_ip', detected);
+        localStorage.setItem('korvo_board_ip', detected);
+        toast('IP detected — click Save Settings');
+      } catch (e) {
+        toast('Detect failed — enter board IP manually', 'error');
+      }
+    }
+
+    function isValidResetPort(port) {
+      const p = String(port || '').trim();
+      return /^\/dev\/cu\.[^/]+$/.test(p) || /^\/dev\/tty(USB|ACM)[0-9]+$/.test(p);
+    }
+
+    async function resolveResetPort() {
+      const select = document.getElementById('serialPort');
+      const selected = select ? String(select.value || '').trim() : '';
+      if (isValidResetPort(selected)) return selected;
+      const cached = String(localStorage.getItem('korvo_flash_port') || '').trim();
+      if (isValidResetPort(cached)) return cached;
+      try {
+        const res = await fetch('/api/ports');
+        const data = await res.json().catch(() => ({}));
+        const ports = Array.isArray(data.ports) ? data.ports : [];
+        const first = ports.find((p) => isValidResetPort(p));
+        if (!first) return '';
+        if (select) select.value = first;
+        localStorage.setItem('korvo_flash_port', first);
+        return first;
+      } catch (_) {
+        return '';
+      }
+    }
+
+    async function forceResetBoard() {
+      const btn = document.getElementById('forceResetBtn');
+      const statusEl = document.getElementById('settingsResetStatus');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Resetting…';
+      }
+      if (statusEl) statusEl.textContent = 'Sending hardware reset pulse...';
+      try {
+        const port = await resolveResetPort();
+        if (!port) {
+          if (statusEl) statusEl.textContent = 'No valid serial port found. Connect board and open Build tab.';
+          toast('No valid serial port found', 'error');
+          return;
+        }
+        const res = await fetch('/api/flash/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ port }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          const msg = (data && (data.detail || data.message)) ? String(data.detail || data.message) : `Reset failed (${res.status})`;
+          if (statusEl) statusEl.textContent = msg;
+          toast('Force reset failed', 'error');
+          return;
+        }
+        if (statusEl) statusEl.textContent = `Reset sent on ${data.port} (${data.method || 'serial'})`;
+        toast(`Board reset sent on ${data.port}`);
+        setTimeout(() => {
+          fetchWifiRuntime(true).catch(() => {});
+          refreshEspResolutionStatus().catch(() => {});
+        }, 1800);
+      } catch (e) {
+        const msg = String((e && e.message) || e || 'Reset failed');
+        if (statusEl) statusEl.textContent = msg;
+        toast('Force reset failed', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Force Reset Board';
+        }
+      }
     }
 
     // ─── Serial Ports ───
@@ -1021,8 +1346,8 @@
     }
 
     async function korvoDiscoverStaIpFromBoard() {
-      if (_isIpv4Host(espIp)) return;
-      let probeHost = _normalizeBoardHost(espIp);
+      let probeHost = _normalizeBoardHost(localStorage.getItem('korvo_discovery_host') || '');
+      if (!probeHost) probeHost = _normalizeBoardHost(espIp);
       if (!probeHost) {
         probeHost = _normalizeBoardHost(document.getElementById('boardIp').value) || 'korvo.local';
       }
@@ -1072,7 +1397,7 @@
       }
       const streamUrl = _boardStreamUrl();
       if (!streamUrl) {
-        alert('Enter the board IP / host (same field as live mic).');
+        alert('Set ESP32 host/IP in Settings first, then Save Settings.');
         return;
       }
       const listenWhileTranscribing = !!(document.getElementById('transcribeListenAudio') && document.getElementById('transcribeListenAudio').checked);
@@ -1108,6 +1433,8 @@
       live.textContent = '…';
       roll.textContent = '';
       window._korvoTranscribeAccum = '';
+      badge.className = 'badge scanning';
+      badge.textContent = 'Connecting';
       let wsGotReady = false;
       transcribeWs = new WebSocket(wsUrl);
       transcribeWs.onopen = () => {
@@ -1124,8 +1451,8 @@
         }
         if (msg.type === 'ready') {
           wsGotReady = true;
-          badge.className = 'badge connected';
-          badge.textContent = 'Live';
+          badge.className = 'badge scanning';
+          badge.textContent = 'Listening';
           btn.innerHTML = '⏹ Stop transcript';
           statusEl.textContent = 'Ready — model ' + msg.model + ', step ' + msg.step_sec + 's, window ' + msg.window_sec + 's';
           return;
@@ -1149,6 +1476,10 @@
             rollEl.scrollTop = rollEl.scrollHeight;
           }
           const hint = delta || full;
+          if (hint) {
+            badge.className = 'badge connected';
+            badge.textContent = 'Live';
+          }
           statusEl.textContent = hint
             ? (delta ? 'Δ ' : 'Window ') + hint.slice(0, 80) + (hint.length > 80 ? '…' : '') + ' · ' + (msg.t_unix ? new Date(msg.t_unix * 1000).toLocaleTimeString() : '')
             : '(no new words this step)';
@@ -1197,7 +1528,7 @@
         document.getElementById('boardIp').value = boardIp;
       }
       if (!boardIp) {
-        alert('Enter the board LAN IP (same as LED control), or set it under LED first.');
+        alert('Set ESP32 host/IP in Settings first, then Save Settings.');
         return;
       }
       if (korvoMic) {
@@ -1215,12 +1546,17 @@
         ? `${window.location.origin}/api/audio/relay?url=${encodeURIComponent(primaryUrl)}`
         : primaryUrl;
       statusEl.textContent = 'Connecting… ' + playUrl;
+      badge.className = 'badge scanning';
+      badge.textContent = 'Connecting';
       korvoMic = new KorvoLiveMic();
       try {
         const playbackGain =
           typeof window.getBoardOutputVolumeLinear === 'function'
             ? window.getBoardOutputVolumeLinear()
             : 1;
+        if (playbackGain <= 0.001) {
+          statusEl.textContent = 'Playback volume is 0% (muted). Raise the Playback volume slider to hear audio.';
+        }
         await korvoMic.start(playUrl, {
           playbackGain: playbackGain,
           onStatus: (s) => { statusEl.textContent = s; },
@@ -1278,25 +1614,26 @@
     
     // Poll ESP32 LED state every 5s when online
     setInterval(() => { if (espIp) checkLedBoard(); }, 5000);
-
+    // Re-discover board IP periodically so DHCP changes are picked up.
+    setInterval(() => { korvoDiscoverStaIpFromBoard(); }, 30000);
     document.getElementById('espIpInput').addEventListener('change', function() {
       const v = _normalizeBoardHost(this.value);
       if (!v) return;
       this.value = v;
       espIp = v;
       localStorage.setItem('korvo_esp_ip', v);
+      localStorage.setItem('korvo_board_ip', v);
+      if (v.toLowerCase().endsWith('.local')) {
+        localStorage.setItem('korvo_discovery_host', v);
+      }
+      const boardInput = document.getElementById('boardIp');
+      if (boardInput) boardInput.value = v;
       checkLedBoard();
     });
 
     async function bootstrapAfterSettings() {
       await loadSettings();
       const bi = document.getElementById('boardIp');
-      if (!bi.dataset.bound) {
-        bi.dataset.bound = '1';
-        bi.addEventListener('change', function() {
-          localStorage.setItem('korvo_board_ip', this.value.trim());
-        });
-      }
       const savedBoard = _normalizeBoardHost(localStorage.getItem('korvo_board_ip') || '');
       if (espIp) bi.value = espIp;
       else if (savedBoard) bi.value = savedBoard;
@@ -1323,19 +1660,29 @@
       document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => korvoSwitchTab(btn.getAttribute('data-tab')));
       });
-      const valid = ['wifi', 'bluetooth', 'settings', 'led', 'build', 'audio', 'transcript', 'translation', 'third-party', 'docs'];
+      const valid = ['settings', 'wifi', 'build', 'bluetooth', 'led', 'audio', 'transcript', 'translation', 'third-party', 'docs'];
       let t = '';
       try {
         t = (localStorage.getItem('korvo_dashboard_tab') || '').trim();
       } catch (e) {}
       if (t && valid.indexOf(t) >= 0) {
         korvoSwitchTab(t);
+      } else {
+        korvoSwitchTab('settings');
       }
     }
 
     // ─── Init ───
     window.toggleAudioStream = toggleAudioStream;
     window.toggleLiveTranscribe = toggleLiveTranscribe;
+    window.closeWifiScanModal = closeWifiScanModal;
+    window.openWifiDeleteModal = openWifiDeleteModal;
+    window.closeWifiDeleteModal = closeWifiDeleteModal;
+    window.confirmDeleteNetwork = confirmDeleteNetwork;
+    window.testWifiConnection = testWifiConnection;
+    window.syncWifiToBoard = syncWifiToBoard;
+    window.detectBoardIp = detectBoardIp;
+    window.forceResetBoard = forceResetBoard;
     window._boardStreamUrl = _boardStreamUrl;
     window.__korvoApplyLiveMicGain = function () {
       if (!korvoMic || typeof korvoMic.setPlaybackGain !== 'function') return;
@@ -1346,12 +1693,36 @@
       korvoMic.setPlaybackGain(g);
     };
 
-    korvoInitTabs();
-    loadWifi();
-    bootstrapAfterSettings();
-    loadPorts();
-    if (typeof initAudioSection === 'function') initAudioSection();
-    if (typeof initBluetoothSection === 'function') initBluetoothSection();
-    if (typeof initTranslationSection === 'function') initTranslationSection();
-    if (typeof initThirdPartySection === 'function') initThirdPartySection();
+    async function bootstrapDashboard() {
+      startDashboardPreloaderWatchdog();
+      try {
+        korvoInitTabs();
+        const tasks = [
+          loadWifi(),
+          bootstrapAfterSettings(),
+          loadPorts(),
+        ];
+        if (typeof initAudioSection === 'function') tasks.push(Promise.resolve().then(() => initAudioSection()));
+        if (typeof initBluetoothSection === 'function') tasks.push(Promise.resolve().then(() => initBluetoothSection()));
+        if (typeof initTranslationSection === 'function') tasks.push(Promise.resolve().then(() => initTranslationSection()));
+        if (typeof initThirdPartySection === 'function') tasks.push(Promise.resolve().then(() => initThirdPartySection()));
+        await Promise.allSettled(tasks);
+      } finally {
+        hideDashboardPreloader();
+      }
+    }
+
+    bootstrapDashboard();
+    const wifiScanModal = document.getElementById('wifiScanModal');
+    if (wifiScanModal) {
+      wifiScanModal.addEventListener('click', (ev) => {
+        if (ev.target === wifiScanModal) closeWifiScanModal();
+      });
+    }
+    const wifiDeleteModal = document.getElementById('wifiDeleteModal');
+    if (wifiDeleteModal) {
+      wifiDeleteModal.addEventListener('click', (ev) => {
+        if (ev.target === wifiDeleteModal) closeWifiDeleteModal();
+      });
+    }
   

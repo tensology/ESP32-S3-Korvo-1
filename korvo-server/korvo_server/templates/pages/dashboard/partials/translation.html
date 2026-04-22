@@ -4,16 +4,20 @@
       <p style="font-size:0.86rem;opacity:0.82;line-height:1.45;margin:0 0 0.75rem;">Quick text translation via Google. Default source: English (<code>en</code>) → target: Japanese (<code>ja</code>). <strong>Speak target</strong>: Kokoro/Polly renders audio on the server, then FFmpeg pipes PCM to the ESP (no WAV file on disk). Long translations are split on sentence boundaries so the first phrase can play sooner.</p>
       <div class="card" style="margin:0 0 0.75rem;padding:1rem;">
         <h3 style="font-size:0.95rem;margin:0 0 0.6rem;">Auto Transcribing</h3>
-        <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.55rem;">
+        <div class="translation-auto-toolbar">
           <button class="btn-secondary" id="translationAutoTranscribeBtn" onclick="toggleTranslationAutoTranscribe()">▶️ Start auto transcribing</button>
-          <span id="translationAutoTranscribeStatus" style="font-size:0.78rem;opacity:0.84;">Off</span>
+          <div class="translation-auto-playback">
+            <label for="translationPlaybackTarget">TTS output</label>
+            <select id="translationPlaybackTarget">
+              <option value="board_inject" selected>ESP32 (default)</option>
+              <option value="server_local">This laptop output</option>
+            </select>
+          </div>
+          <span id="translationAutoTranscribeStatus" class="badge disconnected translation-auto-status">Off</span>
         </div>
         <p style="font-size:0.78rem;opacity:0.75;line-height:1.35;margin:0 0 0.4rem;">When a sentence is ready, it is translated and sent to TTS automatically. For lower delay, set <strong>Step seconds</strong> to ~1.0 on the ASR tab (smaller steps = more frequent Whisper passes; more CPU).</p>
-        <label style="display:flex;align-items:center;gap:0.55rem;font-size:0.78rem;opacity:0.9;margin:0 0 0.5rem;cursor:pointer;">
-          <input type="checkbox" id="translationListenBoard" checked style="width:auto;">
-          Listen to board mic stream while auto-transcribing (same as Audio tab relay)
-        </label>
         <div id="translationAutoTranscribeLive" style="background:#0a0a0a;border:1px solid #333;border-radius:8px;padding:0.55rem 0.7rem;min-height:2.1rem;font-size:0.82rem;line-height:1.35;white-space:pre-wrap;">…</div>
+        <div id="translationTtsObservability" style="margin-top:0.5rem;background:#0a0a0a;border:1px solid #333;border-radius:8px;padding:0.55rem 0.7rem;min-height:2.1rem;font-size:0.78rem;line-height:1.35;white-space:pre-wrap;color:#c6c6c6;">TTS session metrics: idle</div>
       </div>
       <div class="row" style="margin-bottom:0.65rem;">
         <div class="field">

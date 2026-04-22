@@ -7,8 +7,8 @@
       </h2>
       <p class="audio-card-lead">Stream from the ESP32 (<code>/api/audio/stream</code>) through this server’s relay.</p>
       <div class="field">
-        <label>Korvo host (<code>korvo.local</code> works on macOS / same LAN when mDNS is on; use a numeric IP if your browser cannot resolve <code>.local</code>)</label>
-        <input type="text" id="boardIp" value="" placeholder="korvo.local or 192.168.1.27" class="audio-board-host-input">
+        <label>Korvo host (managed in Settings)</label>
+        <input type="text" id="boardIp" value="" placeholder="Set under Settings tab" class="audio-board-host-input" readonly>
       </div>
       <label class="audio-relay-option">
         <input type="checkbox" id="audioUseRelay" checked>

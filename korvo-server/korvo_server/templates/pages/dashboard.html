@@ -17,6 +17,12 @@
   <link rel="stylesheet" href="/static/css/dashboard/sections/docs.css">
 </head>
 <body>
+  <div id="pagePreloader" class="page-preloader active" role="status" aria-live="polite" aria-label="Loading dashboard">
+    <div class="page-preloader-content">
+      <span class="page-preloader-spinner" aria-hidden="true"></span>
+      <p id="pagePreloaderText">Loading Korvo dashboard…</p>
+    </div>
+  </div>
   <div class="container">
     <header>
       <div class="logo">🎧</div>
@@ -27,10 +33,10 @@
     </header>
 
     <nav class="tab-bar" role="tablist" aria-label="Dashboard sections">
-      <button type="button" class="tab-btn active" role="tab" id="tabbtn-wifi" aria-selected="true" aria-controls="tab-wifi" data-tab="wifi"><span class="tab-ico" aria-hidden="true">📶</span>WiFi</button>
+      <button type="button" class="tab-btn active" role="tab" id="tabbtn-settings" aria-selected="true" aria-controls="tab-settings" data-tab="settings"><span class="tab-ico" aria-hidden="true">⚙️</span>Settings</button>
+      <button type="button" class="tab-btn" role="tab" id="tabbtn-wifi" aria-selected="false" aria-controls="tab-wifi" data-tab="wifi"><span class="tab-ico" aria-hidden="true">📶</span>WiFi</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-build" aria-selected="false" aria-controls="tab-build" data-tab="build"><span class="tab-ico" aria-hidden="true">🔨</span>Build</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-bluetooth" aria-selected="false" aria-controls="tab-bluetooth" data-tab="bluetooth"><span class="tab-ico" aria-hidden="true">🟦</span>Bluetooth</button>
-      <button type="button" class="tab-btn" role="tab" id="tabbtn-settings" aria-selected="false" aria-controls="tab-settings" data-tab="settings"><span class="tab-ico" aria-hidden="true">⚙️</span>Settings</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-led" aria-selected="false" aria-controls="tab-led" data-tab="led"><span class="tab-ico" aria-hidden="true">💡</span>LED</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-audio" aria-selected="false" aria-controls="tab-audio" data-tab="audio"><span class="tab-ico" aria-hidden="true">🎵</span>Audio</button>
       <button type="button" class="tab-btn" role="tab" id="tabbtn-transcript" aria-selected="false" aria-controls="tab-transcript" data-tab="transcript"><span class="tab-ico" aria-hidden="true">📝</span>ASR</button>
@@ -39,10 +45,10 @@
       <button type="button" class="tab-btn" role="tab" id="tabbtn-docs" aria-selected="false" aria-controls="tab-docs" data-tab="docs" title="References & documentation"><span class="tab-ico" aria-hidden="true">📚</span>Docs</button>
     </nav>
 
+    {% include "pages/dashboard/partials/settings.html" %}
     {% include "pages/dashboard/partials/wifi.html" %}
     {% include "pages/dashboard/partials/build.html" %}
     {% include "pages/dashboard/partials/bluetooth.html" %}
-    {% include "pages/dashboard/partials/settings.html" %}
     {% include "pages/dashboard/partials/led.html" %}
     {% include "pages/dashboard/partials/audio.html" %}
     {% include "pages/dashboard/partials/transcript.html" %}
