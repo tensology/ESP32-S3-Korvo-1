@@ -26,7 +26,7 @@ class FlashBody(BaseModel):
 
 
 class ResetBody(BaseModel):
-    port: str
+    port: str = ""
 
 
 def _normalize_serial_port(raw: str) -> str:
@@ -36,6 +36,37 @@ def _normalize_serial_port(raw: str) -> str:
     port = candidate if candidate.startswith("/dev/") else f"/dev/{candidate}"
     port_ok = bool(re.match(r"^/dev/cu\.[^/]+$", port) or re.match(r"^/dev/tty(USB|ACM)[0-9]+$", port))
     return port if port_ok else ""
+
+
+def _rank_port_name(name: str) -> int:
+    s = name.lower()
+    if "usbserial" in s:
+        return 0
+    if "wchusb" in s or "usbmodem" in s:
+        return 1
+    if "slab" in s:
+        return 2
+    return 5
+
+
+def _auto_detect_serial_port() -> str:
+    try:
+        dev = Path("/dev")
+        names = sorted(
+            [p.name for p in dev.iterdir() if p.name.startswith("cu.")],
+            key=lambda n: (_rank_port_name(n), n),
+        )
+    except OSError:
+        return ""
+    for f in names:
+        rest = f[3:]
+        if re.match(r"^(Bluetooth|debug-console|JBL|GroundControl|AVT)", rest, re.I):
+            continue
+        if re.search(r"usb|serial|SLAB|wch|modem|acm", rest, re.I):
+            p = f"/dev/{f}"
+            if _normalize_serial_port(p):
+                return p
+    return ""
 
 
 def _force_reset_with_serial_pulse(port: str, spawn_env: dict[str, str]) -> tuple[bool, str]:
@@ -309,9 +340,9 @@ async def flash_stream(body: FlashBody, kdb: KorvoDep):
 
 @router.post("/flash/reset")
 def flash_force_reset(body: ResetBody):
-    port = _normalize_serial_port(body.port)
+    port = _normalize_serial_port(body.port) or _auto_detect_serial_port()
     if not port:
-        raise HTTPException(400, "Select a valid serial port (/dev/cu.* or /dev/ttyUSB*).")
+        raise HTTPException(400, "No valid serial port found. Connect board and try again.")
     spawn_env = get_flash_spawn_env()
     ok, detail = _force_reset_with_serial_pulse(port, spawn_env)
     if ok:

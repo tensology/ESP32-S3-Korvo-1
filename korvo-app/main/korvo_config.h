@@ -2,8 +2,8 @@
 #ifndef KORVO_CONFIG_H
 #define KORVO_CONFIG_H
 
-#define KORVO_WIFI_SSID "Snuza Pty Ltd"
-#define KORVO_WIFI_PASSWORD "Snuza7Snuza"
+#define KORVO_WIFI_SSID "The Von"
+#define KORVO_WIFI_PASSWORD "Sausage69"
 #define KORVO_CFG_ASSEMBLYAI_API_KEY "bhnmfghkjmghjkg"
 #define KORVO_CFG_OPENAI_API_KEY ""
 #define KORVO_CFG_ANTHROPIC_API_KEY ""
@@ -16,8 +16,8 @@
 #define KORVO_CFG_AWS_POLLY_ENABLED "0"
 #define KORVO_CFG_WAKE_WORD "hilexin"
 #define KORVO_CFG_AGENT_ENDPOINT ""
-#define KORVO_CFG_ESP_IP "192.168.2.174"
-#define KORVO_CFG_LAST_BOARD_HOST "192.168.2.174"
-#define KORVO_CFG_LAST_BOARD_STA_IP "192.168.2.174"
+#define KORVO_CFG_ESP_IP "192.168.1.28"
+#define KORVO_CFG_LAST_BOARD_HOST "korvo.local"
+#define KORVO_CFG_LAST_BOARD_STA_IP "192.168.1.28"
 
 #endif // KORVO_CONFIG_H

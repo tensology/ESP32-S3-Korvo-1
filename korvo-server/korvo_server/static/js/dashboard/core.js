@@ -528,15 +528,10 @@
       if (statusEl) statusEl.textContent = 'Sending hardware reset pulse...';
       try {
         const port = await resolveResetPort();
-        if (!port) {
-          if (statusEl) statusEl.textContent = 'No valid serial port found. Connect board and open Build tab.';
-          toast('No valid serial port found', 'error');
-          return;
-        }
         const res = await fetch('/api/flash/reset', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ port }),
+          body: JSON.stringify({ port: port || '' }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) {
