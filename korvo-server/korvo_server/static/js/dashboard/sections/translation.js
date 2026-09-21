@@ -1,4 +1,4 @@
-// Translation section: AssemblyAI key persistence in SQLite via /api/settings.
+// Translation section: text translation, auto ASR handoff, and TTS playback.
 (function () {
   const FALLBACK_KOKORO_VOICES = ['af_alloy', 'af_aoede', 'af_bella', 'af_heart', 'af_jessica', 'af_kore', 'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx', 'am_puck', 'am_santa', 'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily', 'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis', 'ef_dora', 'em_alex', 'em_santa', 'ff_siwis', 'hf_alpha', 'hf_beta', 'hm_omega', 'hm_psi', 'if_sara', 'im_nicola', 'jf_alpha', 'jf_gongitsune', 'jf_nezumi', 'jf_tebukuro', 'jm_kumo', 'pf_dora', 'pm_alex', 'pm_santa', 'zf_xiaobei', 'zf_xiaoni', 'zf_xiaoxiao', 'zf_xiaoyi', 'zm_yunjian', 'zm_yunxi', 'zm_yunxia', 'zm_yunyang'];
   const DEFAULT_VOICE_BY_TARGET = { en: 'af_heart', ja: 'jf_alpha', es: 'ef_dora', fr: 'ff_siwis', it: 'if_sara', pt: 'pf_dora', hi: 'hf_alpha', 'zh-cn': 'zf_xiaobei', 'zh-tw': 'zf_xiaobei' };
@@ -19,6 +19,64 @@
   let translationAutoReconnectAttempts = 0;
   const TRANSLATION_AUTO_RECONNECT_MAX = 20;
   const TRANSLATION_AUTO_RECONNECT_BASE_MS = 700;
+
+  let translationPeople = [];
+
+  function translationPersonId() {
+    const el = document.getElementById('translationSpeaker');
+    const id = el ? Number(el.value) : 0;
+    return id > 0 ? id : null;
+  }
+
+  async function loadTranslationSpeakers() {
+    const el = document.getElementById('translationSpeaker');
+    if (!el) return;
+    const previous = el.value;
+    try {
+      const res = await fetch('/api/arctone/people');
+      const data = await res.json();
+      translationPeople = Array.isArray(data.people) ? data.people : [];
+    } catch (_) {
+      translationPeople = [];
+    }
+    el.innerHTML = '<option value="">Manual languages</option>';
+    translationPeople.forEach((person) => {
+      const opt = document.createElement('option');
+      opt.value = String(person.id);
+      opt.textContent = `${person.speaker_label}: ${person.name} (${person.language_code} → ${person.target_language_code})`;
+      el.appendChild(opt);
+    });
+    if (previous && translationPeople.some((person) => String(person.id) === previous)) {
+      el.value = previous;
+    }
+  }
+
+  function applyTranslationSpeaker() {
+    const id = translationPersonId();
+    const srcEl = document.getElementById('translationSourceLang');
+    const tgtEl = document.getElementById('translationTargetLang');
+    if (!srcEl || !tgtEl) return;
+    if (!id) {
+      srcEl.disabled = false;
+      tgtEl.disabled = false;
+      return;
+    }
+    const person = translationPeople.find((row) => Number(row.id) === id);
+    if (!person) return;
+    const ensure = (select, code) => {
+      if (![...select.options].some((opt) => opt.value === code)) {
+        const opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = code;
+        select.appendChild(opt);
+      }
+      select.value = code;
+      select.disabled = true;
+    };
+    ensure(srcEl, person.language_code);
+    ensure(tgtEl, person.target_language_code);
+    if (typeof applyTargetLanguageVoices === 'function') applyTargetLanguageVoices();
+  }
 
   function translationStatusEl() {
     return document.getElementById('translationStatus');
@@ -93,6 +151,17 @@
     return data && data.playback_target === 'server_local' ? 'this Mac' : 'device';
   }
 
+  /** Read the speech-speed control, clamped defensively (backend also validates > 0). */
+  function translationKokoroSpeed() {
+    const el = document.getElementById('translationKokoroSpeed');
+    if (!el) return 1.0;
+    let v = parseFloat(el.value);
+    if (!isFinite(v) || v <= 0) v = 1.0;
+    if (v > 3) v = 3.0;
+    if (v < 0.25) v = 0.25;
+    return v;
+  }
+
   function normalizeBoardHost(raw) {
     let v = String(raw || '').trim();
     if (!v) return '';
@@ -153,44 +222,6 @@
     } catch (_) {}
   }
 
-  async function saveTranslationSettings() {
-    const keyEl = document.getElementById('assemblyAiApiKey');
-    const status = translationStatusEl();
-    if (!keyEl) return;
-    const key = keyEl.value.trim();
-    if (!key) {
-      if (status) status.textContent = 'Please add an AssemblyAI API key.';
-      return;
-    }
-    if (/\s/.test(key)) {
-      if (status) status.textContent = 'AssemblyAI API key cannot contain spaces.';
-      if (typeof toast === 'function') toast('Invalid AssemblyAI key format', 'error');
-      return;
-    }
-    if (key.length < 20) {
-      if (status) status.textContent = 'AssemblyAI API key looks too short.';
-      if (typeof toast === 'function') toast('AssemblyAI key looks invalid', 'error');
-      return;
-    }
-    if (!/^[A-Za-z0-9._-]+$/.test(key)) {
-      if (status) status.textContent = 'AssemblyAI API key has invalid characters.';
-      if (typeof toast === 'function') toast('Invalid AssemblyAI key format', 'error');
-      return;
-    }
-    const res = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assemblyai_api_key: key }),
-    });
-    if (!res.ok) {
-      if (status) status.textContent = 'Failed to save AssemblyAI API key.';
-      if (typeof toast === 'function') toast('Failed to save AssemblyAI key', 'error');
-      return;
-    }
-    if (status) status.textContent = 'AssemblyAI API key saved to SQLite settings.';
-    if (typeof toast === 'function') toast('AssemblyAI key saved');
-  }
-
   function initTranslationSection() {
     const status = translationStatusEl();
     if (status && !status.dataset.init) {
@@ -202,6 +233,12 @@
     setKokoroVoiceOptions(FALLBACK_KOKORO_VOICES, 'af_heart');
     loadKokoroVoices();
     bindTargetLanguageVoiceDefault();
+    const speakerEl = document.getElementById('translationSpeaker');
+    if (speakerEl && !speakerEl.dataset.bound) {
+      speakerEl.dataset.bound = '1';
+      speakerEl.addEventListener('change', applyTranslationSpeaker);
+    }
+    loadTranslationSpeakers();
   }
 
   function setKokoroVoiceOptions(voices, selectedVoice) {
@@ -335,9 +372,10 @@
         text,
         source_language,
         target_language,
+        person_id: translationPersonId(),
         speak_target,
         kokoro_voice,
-        kokoro_speed: 1.0,
+        kokoro_speed: translationKokoroSpeed(),
         playback_target,
         board_url,
         stream_key: (typeof _boardStreamUrl === 'function' ? (_boardStreamUrl() || '') : ''),
@@ -370,6 +408,7 @@
         tts_input_text: data.tts_input_text || '',
         source_language,
         target_language,
+        person_id: translationPersonId(),
         speak_target: !!speak_target,
         kokoro_voice,
         kokoro_lang: data.kokoro_lang || '',
@@ -541,7 +580,7 @@
       await flushBoardPlaybackVolumeIfPossible();
     }
     const stream_key =
-      typeof _boardStreamUrl === 'function' ? (_boardStreamUrl() || '') : `${board_url.replace(/\/$/, '')}/api/audio/stream`;
+      typeof _boardStreamUrl === 'function' ? (_boardStreamUrl() || '') : '';
     const startedAt = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     const res = await fetch('/api/translate/google', {
       method: 'POST',
@@ -550,9 +589,10 @@
         text,
         source_language,
         target_language,
+        person_id: translationPersonId(),
         speak_target,
         kokoro_voice,
-        kokoro_speed: 1.0,
+        kokoro_speed: translationKokoroSpeed(),
         playback_target,
         board_url,
         stream_key,
@@ -731,8 +771,8 @@
     connectAutoWs();
   }
 
-  window.saveTranslationSettings = saveTranslationSettings;
   window.initTranslationSection = initTranslationSection;
+  window.loadTranslationSpeakers = loadTranslationSpeakers;
   window.translateTextGoogle = translateTextGoogle;
   window.copyTranslationOutput = copyTranslationOutput;
   window.toggleTranslationAutoTranscribe = toggleTranslationAutoTranscribe;

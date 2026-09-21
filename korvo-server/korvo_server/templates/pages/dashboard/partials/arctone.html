@@ -1,0 +1,103 @@
+<div class="tab-panel" role="tabpanel" id="tab-arctone" aria-labelledby="tabbtn-arctone">
+  <div class="card arctone-shell">
+    <div class="arctone-heading">
+      <div>
+        <h2><span class="icon">🧬</span> Arctone</h2>
+        <p>Build a five-person speaker group, assign each person a spoken language and target translation language, then capture the five setup phrases.</p>
+      </div>
+      <span id="arctoneCountBadge" class="badge disconnected">0 / 5 speakers</span>
+    </div>
+
+    <div class="arctone-control-strip">
+      <div class="field">
+        <label for="arctoneSessionTargetLang">Session target language</label>
+        <select id="arctoneSessionTargetLang"></select>
+      </div>
+      <div class="field">
+        <label for="arctoneAssemblyMode">AssemblyAI mode</label>
+        <select id="arctoneAssemblyMode">
+          <option value="planned" selected>Live diarization is not connected</option>
+        </select>
+      </div>
+      <button type="button" class="btn-secondary arctone-session-btn" id="arctoneStartListeningBtn" onclick="arctoneToggleListening()">Start listening</button>
+    </div>
+
+    <div class="arctone-status-panel">
+      <div>
+        <strong id="arctoneListenState">Idle</strong>
+        <span id="arctoneListenDetail">Add a person, then capture the five setup phrases.</span>
+      </div>
+      <div class="arctone-led" id="arctoneLedPreview" aria-hidden="true"></div>
+    </div>
+
+    <div class="arctone-people-grid" id="arctonePeopleGrid"></div>
+
+    <div class="arctone-integration-note">
+      <strong>What this stores:</strong>
+      A person, their languages, and a voice sample recorded in this browser. Live speaker detection on the board stream is not connected. Translation uses the person you pick on the Translation tab.
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="arctonePersonModal">
+  <div class="modal arctone-modal" role="dialog" aria-modal="true" aria-labelledby="arctoneModalTitle">
+    <div class="arctone-modal-top">
+      <div>
+        <h3 id="arctoneModalTitle">Add speaker</h3>
+        <div class="subtitle" id="arctoneModalSubtitle">Speaker A voice setup</div>
+      </div>
+      <button type="button" class="btn-secondary arctone-icon-btn" onclick="arctoneClosePersonModal()" aria-label="Close Arctone modal">×</button>
+    </div>
+
+    <div class="arctone-plus-mark" aria-hidden="true">+</div>
+
+    <div class="row arctone-modal-row">
+      <div class="field">
+        <label for="arctonePersonName">Person name</label>
+        <input id="arctonePersonName" type="text" maxlength="80" placeholder="Name">
+      </div>
+      <div class="field">
+        <label for="arctoneSpeakerLabel">Speaker label</label>
+        <input id="arctoneSpeakerLabel" type="text" readonly>
+      </div>
+    </div>
+
+    <div class="row arctone-modal-row">
+      <div class="field">
+        <label for="arctonePersonLanguage">Spoken language</label>
+        <select id="arctonePersonLanguage"></select>
+      </div>
+      <div class="field">
+        <label for="arctoneTargetLanguage">Target language</label>
+        <select id="arctoneTargetLanguage"></select>
+      </div>
+    </div>
+
+    <div class="arctone-auth-card">
+      <div class="arctone-auth-head">
+        <div>
+          <strong>Setup phrases</strong>
+          <span id="arctonePhraseHint">Choose a language, then start listening.</span>
+        </div>
+        <button type="button" class="btn-primary" id="arctoneAuthBtn" onclick="arctoneAuthenticateCurrent()">Record voice sample</button>
+      </div>
+      <ul class="arctone-phrase-list" id="arctonePhraseList"></ul>
+    </div>
+
+    <div class="btn-row arctone-modal-actions">
+      <button type="button" class="btn-secondary" onclick="arctoneClosePersonModal()">Cancel</button>
+      <button type="button" class="btn-primary" id="arctoneSavePersonBtn" onclick="arctoneSaveCurrentPerson()">Save person</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="arctoneRemoveModal">
+  <div class="modal arctone-remove-modal" role="dialog" aria-modal="true" aria-labelledby="arctoneRemoveTitle">
+    <h3 id="arctoneRemoveTitle">Remove speaker?</h3>
+    <div class="subtitle" id="arctoneRemoveText">This person will be removed from the Arctone group.</div>
+    <div class="btn-row arctone-modal-actions">
+      <button type="button" class="btn-secondary" onclick="arctoneCloseRemoveModal()">Cancel</button>
+      <button type="button" class="btn-primary" onclick="arctoneConfirmRemovePerson()">Remove</button>
+    </div>
+  </div>
+</div>

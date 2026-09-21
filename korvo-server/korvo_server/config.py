@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -13,3 +14,6 @@ DOWNLOADS_DIR = SERVER_ROOT / "downloads"
 KOKORO_DIR = DOWNLOADS_DIR / "kokoro"
 LOGS_DIR = SERVER_ROOT / "logs"
 PORT = 3333
+HOST = os.environ.get("KORVO_HOST", "127.0.0.1")
+API_TOKEN = os.environ.get("KORVO_API_TOKEN", "")
+ARCTONE_SAMPLES_DIR = SERVER_ROOT / "arctone_samples"

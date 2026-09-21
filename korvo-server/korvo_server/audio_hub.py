@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from korvo_server.board_auth import board_headers
+
 log = logging.getLogger(__name__)
 
 
@@ -42,10 +44,10 @@ class BoardAudioHub:
     async def _run_session(self, sess: _HubSession) -> None:
         timeout = httpx.Timeout(connect=20.0, read=None, write=20.0, pool=None)
         limits = httpx.Limits(max_keepalive_connections=0, max_connections=4)
-        headers = {"Connection": "close", "Accept": "*/*", "User-Agent": "korvo-server/audio-hub"}
+        headers = board_headers({"Connection": "close", "Accept": "*/*", "User-Agent": "korvo-server/audio-hub"})
         retry_delay = 0.35
         try:
-            async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=False) as client:
                 while not sess.stop_event.is_set():
                     if not sess.subscribers:
                         return

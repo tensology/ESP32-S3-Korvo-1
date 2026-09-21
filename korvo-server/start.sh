@@ -82,7 +82,13 @@ fi
 # Clear port immediately before bind (avoids uvicorn ERROR: address already in use).
 prepare_port "$PORT"
 
-UVICORN_ARGS=(korvo_server.main:app --host 0.0.0.0 --port "$PORT")
+HOST="${KORVO_HOST:-127.0.0.1}"
+if [[ "$HOST" != "127.0.0.1" && "$HOST" != "localhost" && "$HOST" != "::1" && -z "${KORVO_API_TOKEN:-}" ]]; then
+  echo "[korvo] KORVO_API_TOKEN is required when KORVO_HOST is not loopback" >&2
+  exit 1
+fi
+export KORVO_HOST="$HOST"
+UVICORN_ARGS=(korvo_server.main:app --host "$HOST" --port "$PORT")
 if [[ $RELOAD_ON -eq 1 ]]; then
   UVICORN_ARGS+=(--reload)
 fi

@@ -93,13 +93,24 @@
       aws_region: getValue('thirdPartyAwsRegion') || 'eu-west-1',
       aws_session_token: getValue('thirdPartyAwsSessionToken'),
     };
-    let awsPollyEnabled = false;
+    const saved = window.__korvoSecretsSet || {};
+    const replacingAws = !!(awsPayload.aws_access_key_id || awsPayload.aws_secret_access_key);
+    let awsPollyEnabled = window.__korvoAwsPollyEnabled === '1';
     if (awsPayload.aws_access_key_id && awsPayload.aws_secret_access_key) {
       awsPollyEnabled = await validateAwsPolly();
-    } else {
+    } else if (replacingAws) {
+      setAwsPollyStatus('Enter both AWS key and secret to replace them', false);
+      if (typeof toast === 'function') toast('Enter both AWS key and secret', 'error');
+      return;
+    } else if (!saved.aws_access_key_id) {
+      awsPollyEnabled = false;
       setAwsPollyStatus('Missing credentials (disabled)', false);
     }
     const payload = {
+      aws_region: awsPayload.aws_region,
+      aws_polly_enabled: awsPollyEnabled ? '1' : '0',
+    };
+    const optionalSecrets = {
       assemblyai_api_key: getValue('thirdPartyAssemblyAiApiKey'),
       openai_api_key: getValue('thirdPartyOpenAiApiKey'),
       anthropic_api_key: getValue('thirdPartyAnthropicApiKey'),
@@ -107,10 +118,11 @@
       elevenlabs_api_key: getValue('thirdPartyElevenLabsApiKey'),
       aws_access_key_id: awsPayload.aws_access_key_id,
       aws_secret_access_key: awsPayload.aws_secret_access_key,
-      aws_region: awsPayload.aws_region,
       aws_session_token: awsPayload.aws_session_token,
-      aws_polly_enabled: awsPollyEnabled ? '1' : '0',
     };
+    Object.entries(optionalSecrets).forEach(([key, value]) => {
+      if (value) payload[key] = value;
+    });
     const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -6,9 +6,33 @@
 # It activates the correct Python virtual environment and adds all
 # necessary tools to your PATH.
 
-# ESP-IDF paths
-export IDF_PATH="/Users/paul/esp/esp-idf"
-export IDF_PYTHON_ENV_PATH="/Users/paul/.espressif/python_env/idf5.4_py3.12_env"
+# ESP-IDF paths. Allow callers to override IDF_PATH; otherwise discover a
+# local checkout instead of silently exporting a stale hard-coded path.
+if [[ -z "${IDF_PATH:-}" || ! -f "${IDF_PATH:-}/export.sh" ]]; then
+  for _idf_candidate in \
+    "$HOME/esp/esp-idf" \
+    "$HOME/development/esp-idf" \
+    "$HOME/development/esp/esp-idf" \
+    "$HOME/esp-idf"
+  do
+    if [[ -f "$_idf_candidate/export.sh" ]]; then
+      export IDF_PATH="$_idf_candidate"
+      break
+    fi
+  done
+  unset _idf_candidate
+fi
+
+if [[ -z "${IDF_PATH:-}" || ! -f "$IDF_PATH/export.sh" ]]; then
+  echo "✗ ESP-IDF checkout not found. Set IDF_PATH to a valid esp-idf directory before building/flashing." >&2
+  return 2 2>/dev/null || exit 2
+fi
+
+export IDF_PYTHON_ENV_PATH="${IDF_PYTHON_ENV_PATH:-/Users/paul/.espressif/python_env/idf5.4_py3.12_env}"
+if [[ ! -f "$IDF_PYTHON_ENV_PATH/bin/activate" ]]; then
+  echo "✗ ESP-IDF Python env not found at $IDF_PYTHON_ENV_PATH. Run the ESP-IDF install script for this checkout." >&2
+  return 2 2>/dev/null || exit 2
+fi
 
 # Activate the ESP-IDF Python virtual environment
 source "$IDF_PYTHON_ENV_PATH/bin/activate"
@@ -26,6 +50,11 @@ export PATH="/Users/paul/.espressif/tools/openocd-esp32/v0.12.0-esp32-20260304/o
 if [[ -f "$IDF_PATH/export.sh" ]]; then
   # shellcheck disable=SC1090
   source "$IDF_PATH/export.sh" >/dev/null 2>&1 || true
+fi
+
+if ! command -v idf.py >/dev/null 2>&1; then
+  echo "✗ idf.py was not found after ESP-IDF activation. Check IDF_PATH=$IDF_PATH." >&2
+  return 2 2>/dev/null || exit 2
 fi
 
 # Fallback for setups where export.sh does not populate ESP_ROM_ELF_DIR.

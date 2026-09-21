@@ -20,6 +20,9 @@
 #include "led_strip.h"
 #include "esp_board_init.h"
 #include "korvo_config.h"
+#ifndef KORVO_CFG_BOARD_API_TOKEN
+#define KORVO_CFG_BOARD_API_TOKEN ""
+#endif
 #include "nvs.h"
 #if CONFIG_BT_ENABLED
 #include "esp_bt.h"
@@ -62,6 +65,7 @@ static volatile uint32_t inject_http_bytes_accepted = 0;
 static volatile uint32_t inject_playback_bytes_consumed = 0;
 static volatile uint32_t inject_playback_underruns = 0;
 static volatile uint32_t inject_playback_fifo_level = 0;
+static volatile bool inject_audio_ready = false;
 
 static const char *TAG = "KORVO";
 
@@ -1038,7 +1042,28 @@ static void wifi_start_softap_fallback(void)
     ESP_LOGW(TAG, "WiFi STA failed — SoftAP up: SSID=%s open, browse http://192.168.4.1 (STA keeps retrying in background)", ap_ssid);
 }
 
+static bool board_token_ok(httpd_req_t *req) {
+    const char *expect = KORVO_CFG_BOARD_API_TOKEN;
+    if (expect[0] == '\0') {
+        return true;
+    }
+    char got[96];
+    if (httpd_req_get_hdr_value_str(req, "X-Korvo-Token", got, sizeof(got)) != ESP_OK) {
+        return false;
+    }
+    return strcmp(got, expect) == 0;
+}
+
+static esp_err_t board_token_reject(httpd_req_t *req) {
+    httpd_resp_set_status(req, "401 Unauthorized");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Korvo-Token");
+    return httpd_resp_send(req, "{\"ok\":false,\"error\":\"unauthorized\"}", HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t audio_stream_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_type(req, "audio/wav");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store");
@@ -1184,19 +1209,21 @@ static esp_err_t led_send_state_json(httpd_req_t *req) {
 }
 
 static esp_err_t led_api_get_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     return led_send_state_json(req);
 }
 
 static esp_err_t led_api_options_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Korvo-Token");
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
 }
 
 /* STA IPv4 for dashboards that want to avoid slow mDNS (.local) on every request. */
 static esp_err_t network_status_get_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
     cJSON *root = cJSON_CreateObject();
@@ -1249,7 +1276,7 @@ static esp_err_t network_status_get_handler(httpd_req_t *req) {
 static esp_err_t network_status_options_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Korvo-Token");
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
 }
@@ -1298,6 +1325,7 @@ static int led_http_read_body(httpd_req_t *req, char *out, size_t cap) {
 }
 
 static esp_err_t network_profiles_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
     char body[1400];
@@ -1373,6 +1401,7 @@ static esp_err_t network_profiles_post_handler(httpd_req_t *req) {
 }
 
 static esp_err_t led_api_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     int declared = req->content_len;
     if (declared > LED_POST_MAX) {
         return led_send_json_status_cors(req, "400 Bad Request", "{\"error\":\"bad content length\"}");
@@ -1624,6 +1653,7 @@ static esp_err_t led_api_post_handler(httpd_req_t *req) {
 }
 
 static esp_err_t bt_status_get_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
 #if !CONFIG_BT_ENABLED
@@ -1682,6 +1712,7 @@ static esp_err_t bt_status_get_handler(httpd_req_t *req) {
 }
 
 static esp_err_t bt_find_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
 #if !CONFIG_BT_ENABLED
@@ -1702,6 +1733,7 @@ static esp_err_t bt_find_post_handler(httpd_req_t *req) {
 }
 
 static esp_err_t bt_connect_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
 #if !CONFIG_BT_ENABLED
@@ -1750,6 +1782,7 @@ static esp_err_t bt_connect_post_handler(httpd_req_t *req) {
 }
 
 static esp_err_t bt_disconnect_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
 #if !CONFIG_BT_ENABLED
@@ -1767,6 +1800,7 @@ static esp_err_t bt_disconnect_post_handler(httpd_req_t *req) {
 }
 
 static esp_err_t bt_preferred_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
 #if !CONFIG_BT_ENABLED
@@ -1792,6 +1826,7 @@ static esp_err_t bt_preferred_post_handler(httpd_req_t *req) {
 }
 
 static esp_err_t bt_preferred_clear_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
 #if !CONFIG_BT_ENABLED
@@ -1803,6 +1838,7 @@ static esp_err_t bt_preferred_clear_post_handler(httpd_req_t *req) {
 }
 
 static esp_err_t bt_auto_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
 #if !CONFIG_BT_ENABLED
@@ -1824,14 +1860,16 @@ static esp_err_t bt_auto_post_handler(httpd_req_t *req) {
 static esp_err_t bt_api_options_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Korvo-Token");
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
 }
 
 static esp_err_t audio_inject_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
+    if (!inject_audio_ready) return httpd_resp_send(req, "{\"ok\":false,\"error\":\"audio_not_ready\"}", HTTPD_RESP_USE_STRLEN);
     if (!playback_ringbuf_local || !playback_ringbuf_bt) return httpd_resp_send(req, "{\"ok\":false,\"error\":\"playback_unavailable\"}", HTTPD_RESP_USE_STRLEN);
     int declared = req->content_len;
     if (declared <= 0 || declared > (PLAYBACK_PUSH_MAX * (int)sizeof(int16_t))) {
@@ -1874,7 +1912,7 @@ static esp_err_t audio_inject_post_handler(httpd_req_t *req) {
 static esp_err_t audio_inject_options_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "POST, OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Korvo-Token");
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
 }
@@ -1895,6 +1933,7 @@ static size_t drain_ringbuf_bytes(RingbufHandle_t rb) {
 }
 
 static esp_err_t audio_inject_flush_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
     size_t local_drained = drain_ringbuf_bytes(playback_ringbuf_local);
@@ -1917,6 +1956,7 @@ static esp_err_t audio_inject_flush_post_handler(httpd_req_t *req) {
 }
 
 static esp_err_t audio_inject_status_get_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
     uint32_t accepted = inject_http_bytes_accepted;
@@ -1926,7 +1966,8 @@ static esp_err_t audio_inject_status_get_handler(httpd_req_t *req) {
     snprintf(
         out,
         sizeof(out),
-        "{\"ok\":true,\"posts_total\":%u,\"posts_dropped\":%u,\"bytes_accepted\":%u,\"bytes_consumed\":%u,\"queue_bytes_est\":%u,\"fifo_level\":%u,\"underruns\":%u,\"deadline_ms\":%u,\"ts_ms\":%u}",
+        "{\"ok\":true,\"audio_ready\":%s,\"posts_total\":%u,\"posts_dropped\":%u,\"bytes_accepted\":%u,\"bytes_consumed\":%u,\"queue_bytes_est\":%u,\"fifo_level\":%u,\"underruns\":%u,\"deadline_ms\":%u,\"ts_ms\":%u}",
+        inject_audio_ready ? "true" : "false",
         (unsigned)inject_http_posts_total,
         (unsigned)inject_http_posts_dropped,
         (unsigned)accepted,
@@ -1945,12 +1986,13 @@ static esp_err_t audio_inject_status_get_handler(httpd_req_t *req) {
 static esp_err_t audio_output_vol_options_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Korvo-Token");
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
 }
 
 static esp_err_t audio_output_vol_get_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
     int v = 100;
@@ -1964,6 +2006,7 @@ static esp_err_t audio_output_vol_get_handler(httpd_req_t *req) {
 }
 
 static esp_err_t audio_output_vol_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
     int declared = req->content_len;
@@ -2009,6 +2052,7 @@ static esp_err_t audio_output_vol_post_handler(httpd_req_t *req) {
 }
 
 static esp_err_t audio_push_cue_post_handler(httpd_req_t *req) {
+    if (!board_token_ok(req)) return board_token_reject(req);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_type(req, "application/json");
     led_start_breath_cue(255, 210, 0, LED_CUE_BREATH_MS);
@@ -2018,7 +2062,7 @@ static esp_err_t audio_push_cue_post_handler(httpd_req_t *req) {
 static esp_err_t audio_push_cue_options_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "POST, OPTIONS");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type, X-Korvo-Token");
     httpd_resp_set_status(req, "204 No Content");
     return httpd_resp_send(req, NULL, 0);
 }
@@ -2127,6 +2171,10 @@ static void playback_task(void *arg) {
     while (1) {
         if (!playback_ringbuf_local) {
             vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+        if (!inject_audio_ready) {
+            vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
         while (fifo_len < PLAYBACK_FIFO_BYTES) {
@@ -2347,6 +2395,7 @@ void app_main(void) {
     esp_err_t board_init = esp_board_init(AUDIO_SAMPLE_RATE, 2, AUDIO_BIT_DEPTH);
     ESP_LOGI(TAG, "Audio init result: %d", board_init);
     if (board_init == ESP_OK) {
+        inject_audio_ready = true;
         esp_err_t v = esp_audio_set_play_vol(100);
         if (v != ESP_OK) {
             ESP_LOGW(TAG, "esp_audio_set_play_vol(100) failed: %s", esp_err_to_name(v));

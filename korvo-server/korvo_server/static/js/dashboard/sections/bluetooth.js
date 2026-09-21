@@ -24,6 +24,13 @@
     return `http://${host}`;
   }
 
+  function boardFetch(url, opts) {
+    const options = Object.assign({}, opts || {});
+    const headers = window.korvoBoardHeaders ? window.korvoBoardHeaders(options.headers || {}) : (options.headers || {});
+    options.headers = headers;
+    return fetch(url, options);
+  }
+
   function btSetStatus(message, kind) {
     const st = btStatusEl();
     const badge = btStatusBadgeEl();
@@ -78,7 +85,7 @@
       return;
     }
     try {
-      const res = await fetch(`${base}/api/bluetooth/status`, { method: 'GET' });
+      const res = await boardFetch(`${base}/api/bluetooth/status`, { method: 'GET' });
       if (!res.ok) throw new Error(`status ${res.status}`);
       const data = await res.json();
       if (!data.enabled) {
@@ -113,7 +120,7 @@
       return;
     }
     try {
-      const res = await fetch(`${base}/api/bluetooth/find`, {
+      const res = await boardFetch(`${base}/api/bluetooth/find`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ finding: !!on }),
@@ -133,7 +140,7 @@
       return;
     }
     try {
-      const res = await fetch(`${base}/api/bluetooth/connect`, {
+      const res = await boardFetch(`${base}/api/bluetooth/connect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ addr: device.addr || '', name: device.name || '' }),
@@ -156,7 +163,7 @@
   async function btSetPreferred(device) {
     const base = boardBaseUrl();
     if (!base) return;
-    await fetch(`${base}/api/bluetooth/preferred`, {
+    await boardFetch(`${base}/api/bluetooth/preferred`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ addr: device.addr || '', name: device.name || '' }),
@@ -170,7 +177,7 @@
       return;
     }
     try {
-      const res = await fetch(`${base}/api/bluetooth/disconnect`, {
+      const res = await boardFetch(`${base}/api/bluetooth/disconnect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -190,7 +197,7 @@
       return;
     }
     try {
-      const res = await fetch(`${base}/api/bluetooth/preferred/clear`, {
+      const res = await boardFetch(`${base}/api/bluetooth/preferred/clear`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -210,7 +217,7 @@
       return;
     }
     try {
-      const res = await fetch(`${base}/api/bluetooth/auto`, {
+      const res = await boardFetch(`${base}/api/bluetooth/auto`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !!enabled }),

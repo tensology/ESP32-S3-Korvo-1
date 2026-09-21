@@ -11,14 +11,13 @@ import uuid
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlparse
-
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from korvo_server.audio_push import clamp_stream_volume, normalize_board_base, stream_media_file_to_board
+from korvo_server.board_auth import board_headers
 from korvo_server.audio_hub import audio_hub
 from korvo_server.config import RECORDINGS_DIR
 
@@ -178,26 +177,9 @@ def _is_dropped_payload(text: str) -> bool:
 
 
 def _allowed_upstream(url: str) -> bool:
-    try:
-        p = urlparse((url or "").strip())
-    except Exception:
-        return False
-    if p.scheme not in ("http", "https"):
-        return False
-    if not p.hostname:
-        return False
-    hn = p.hostname.lower().rstrip(".")
-    if hn in ("localhost", "127.0.0.1", "korvo.local", "0.0.0.0"):
-        return True
-    if hn.endswith(".local"):
-        return True
-    if hn.startswith("192.168."):
-        return True
-    if hn.startswith("10."):
-        return True
-    if hn.startswith("172."):
-        return True
-    return False
+    from korvo_server.lan_guard import url_allowed
+
+    return url_allowed(url)
 
 
 def _finalize_wav_header(path: Path) -> None:
@@ -235,7 +217,7 @@ async def _record_board_stream(
     """Pull board WAV stream to disk; optionally tee bytes into ffplay stdin. Returns bytes written."""
     timeout = httpx.Timeout(connect=25.0, read=None, write=25.0, pool=None)
     limits = httpx.Limits(max_keepalive_connections=0, max_connections=10)
-    headers = {"Connection": "close", "Accept": "*/*", "User-Agent": "korvo-server/record"}
+    headers = board_headers({"Connection": "close", "Accept": "*/*", "User-Agent": "korvo-server/record"})
     loop = asyncio.get_running_loop()
     deadline = loop.time() + max(0.5, min(duration_sec, 600.0))
 
@@ -261,7 +243,7 @@ async def _record_board_stream(
 
     total = 0
     try:
-        async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=False) as client:
             async with client.stream("GET", board_url, headers=headers) as resp:
                 if resp.status_code != 200:
                     detail = (await resp.aread())[:1200].decode(errors="replace")
@@ -307,10 +289,10 @@ async def _record_board_stream_until_stop(
     """Pull board WAV stream to disk until stop_event is set."""
     timeout = httpx.Timeout(connect=25.0, read=None, write=25.0, pool=None)
     limits = httpx.Limits(max_keepalive_connections=0, max_connections=10)
-    headers = {"Connection": "close", "Accept": "*/*", "User-Agent": "korvo-server/live-record"}
+    headers = board_headers({"Connection": "close", "Accept": "*/*", "User-Agent": "korvo-server/live-record"})
 
     total = 0
-    async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=timeout, limits=limits, follow_redirects=False) as client:
         async with client.stream("GET", board_url, headers=headers) as resp:
             if resp.status_code != 200:
                 detail = (await resp.aread())[:1200].decode(errors="replace")
@@ -750,7 +732,7 @@ async def push_mic_ws(ws: WebSocket):
                     try:
                         res = await client.post(
                             inject_url,
-                            headers={"Content-Type": "application/octet-stream"},
+                            headers=board_headers({"Content-Type": "application/octet-stream"}),
                             content=chunk,
                         )
                     except Exception:

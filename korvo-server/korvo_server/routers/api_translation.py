@@ -12,7 +12,6 @@ import threading
 import wave
 import io
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -20,6 +19,8 @@ from pydantic import BaseModel, Field
 from korvo_server.audio_push import clamp_stream_volume, normalize_board_base, stream_wav_bytes_to_board
 from korvo_server.config import LOGS_DIR
 from korvo_server.deps import KorvoDep
+from korvo_server.board_auth import board_headers
+from korvo_server.lan_guard import url_allowed
 from korvo_server.routers.api_tts import KOKORO_VOICES, _synthesize, synthesize_polly
 from korvo_server.tts_echo_guard import suppress_for
 
@@ -223,7 +224,7 @@ async def _flush_board_inject_queue(board_base: str) -> None:
     timeout = httpx.Timeout(connect=1.5, read=2.0, write=2.0, pool=None)
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(url, headers={"Content-Type": "application/json"}, content=b"{}")
+            r = await client.post(url, headers=board_headers({"Content-Type": "application/json"}), content=b"{}")
             # Older firmware may not expose this endpoint yet.
             if r.status_code in (404, 405, 501):
                 return
@@ -262,16 +263,27 @@ async def _translate_text_google(text: str, source: str, target: str) -> tuple[s
             r.raise_for_status()
             data = r.json()
     except httpx.HTTPStatusError as e:
+        # Google returns { "error": { "code": ..., "message": ... } } on failure.
+        detail = ""
+        try:
+            payload = e.response.json()
+            detail = payload.get("error", {}).get("message", "")
+        except Exception:  # noqa: BLE001
+            detail = ""
+        if detail:
+            raise HTTPException(502, f"Google Translate error: {detail}") from e
         raise HTTPException(502, f"Google Translate HTTP error: {e.response.status_code}") from e
+    except httpx.ReadTimeout as e:
+        raise HTTPException(504, "Google Translate timed out") from e
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"Translation request failed: {e}") from e
     translated = ""
     try:
-        parts = data[0] or []
+        parts = data[0] if isinstance(data, list) and data else []
         translated = "".join((p[0] or "") for p in parts if isinstance(p, list) and p)
     except Exception:  # noqa: BLE001
         translated = ""
-    if not translated:
+    if not translated.strip():
         raise HTTPException(502, "No translation returned")
     translate_ms = int(round((time.monotonic() - translate_started) * 1000.0))
     return translated, translate_ms
@@ -586,6 +598,7 @@ class TranslateBody(BaseModel):
     playback_target: str = "board_inject"
     stream_key: str = ""
     board_url: str = ""
+    person_id: int | None = None
     stream_volume: float = Field(
         1.0,
         ge=0.0,
@@ -598,26 +611,47 @@ class TranslateBody(BaseModel):
     )
 
 
-SUPPORTED_TTS_TARGETS = {"en", "ja", "es", "fr", "it", "pt", "hi", "zh-cn", "zh-tw"}
+# Target language -> Kokoro lang. Must cover every translatable + voiceable target.
+# SUPPORTED_TTS_TARGETS is derived from this so the two can never diverge.
+KOKORO_LANG_BY_TARGET = {
+    "en": "en-us",
+    "ja": "ja",
+    "es": "es",
+    "fr": "fr-fr",
+    "de": "de",
+    "it": "it",
+    "pt": "pt-br",
+    "ko": "ko",
+    "hi": "hi",
+    "ru": "ru",
+    "ar": "ar",
+    "zh-cn": "zh",
+    "zh-tw": "zh",
+}
+
+SUPPORTED_TTS_TARGETS = set(KOKORO_LANG_BY_TARGET.keys())
 
 
 def _allowed_board_url(url: str) -> bool:
-    try:
-        p = urlparse((url or "").strip())
-    except Exception:
+    return url_allowed(url)
+
+
+_translate_hits: list[float] = []
+_TRANSLATE_WINDOW_SEC = 60.0
+_TRANSLATE_MAX_PER_WINDOW = 60
+_TRANSLATE_MAX_CHARS = 2000
+
+
+def _translation_rate_ok() -> bool:
+    # ponytail: process-local counter. One uvicorn worker. Move to a shared store if you run more than one.
+    now = time.monotonic()
+    cutoff = now - _TRANSLATE_WINDOW_SEC
+    while _translate_hits and _translate_hits[0] < cutoff:
+        _translate_hits.pop(0)
+    if len(_translate_hits) >= _TRANSLATE_MAX_PER_WINDOW:
         return False
-    if p.scheme not in ("http", "https"):
-        return False
-    if not p.hostname:
-        return False
-    hn = p.hostname.lower().rstrip(".")
-    if hn in ("localhost", "127.0.0.1", "korvo.local", "0.0.0.0"):
-        return True
-    if hn.endswith(".local"):
-        return True
-    if hn.startswith("192.168.") or hn.startswith("10.") or hn.startswith("172."):
-        return True
-    return False
+    _translate_hits.append(now)
+    return True
 
 
 @router.post("/translate/google")
@@ -626,32 +660,34 @@ async def translate_google(body: TranslateBody, kdb: KorvoDep):
     text = (body.text or "").strip()
     if not text:
         raise HTTPException(400, "Text is required")
+    if len(text) > _TRANSLATE_MAX_CHARS:
+        raise HTTPException(400, f"Text is longer than {_TRANSLATE_MAX_CHARS} characters")
+    if not _translation_rate_ok():
+        raise HTTPException(429, "Too many translation requests")
 
     source = (body.source_language or "en").strip().lower() or "en"
     target = (body.target_language or "ja").strip().lower() or "ja"
+    if body.person_id is not None:
+        with kdb.lock:
+            person = kdb.conn.execute(
+                "SELECT language_code, target_language_code FROM arctone_people WHERE id = ?",
+                (body.person_id,),
+            ).fetchone()
+        if not person:
+            raise HTTPException(404, "Arctone person not found")
+        source = (person["language_code"] or source).strip().lower()
+        target = (person["target_language_code"] or target).strip().lower()
     if len(source) > 12 or len(target) > 12:
         raise HTTPException(400, "Invalid language code")
     if source == target:
         raise HTTPException(400, "Source and target languages must be different")
-    if target not in SUPPORTED_TTS_TARGETS:
-        raise HTTPException(400, f"Target language '{target}' is not supported by Kokoro TTS")
+    speak_target = bool(body.speak_target)
+    speak_unsupported = ""
+    if speak_target and target not in SUPPORTED_TTS_TARGETS:
+        speak_target = False
+        speak_unsupported = f"TTS is not available for '{target}'"
 
-    kokoro_lang_map = {
-        "en": "en-us",
-        "ja": "ja",
-        "es": "es",
-        "fr": "fr-fr",
-        "de": "de",
-        "it": "it",
-        "pt": "pt-br",
-        "ko": "ko",
-        "hi": "hi",
-        "ru": "ru",
-        "ar": "ar",
-        "zh-cn": "zh",
-        "zh-tw": "zh",
-    }
-    kokoro_lang = kokoro_lang_map.get(target, "en-us")
+    kokoro_lang = KOKORO_LANG_BY_TARGET.get(target, "en-us")
 
     with kdb.lock:
         rows = kdb.conn.execute("SELECT key, value FROM settings").fetchall()
@@ -664,7 +700,7 @@ async def translate_google(body: TranslateBody, kdb: KorvoDep):
 
     speak_done = False
     speak_pending = False
-    speak_error = ""
+    speak_error = speak_unsupported
     tts_board_chunks = 0
     tts_orchestrator: dict = {}
     if body.kokoro_voice not in KOKORO_VOICES:
@@ -678,7 +714,7 @@ async def translate_google(body: TranslateBody, kdb: KorvoDep):
         voice_used = KOKORO_DEFAULT_VOICE_BY_LANG.get(kokoro_lang, body.kokoro_voice)
 
     board_base = ""
-    if body.speak_target and playback_target == "board_inject":
+    if speak_target and playback_target == "board_inject":
         board_base = normalize_board_base(body.board_url)
         if not board_base:
             raise HTTPException(400, "board_url is required for board_inject playback_target")
@@ -690,7 +726,7 @@ async def translate_google(body: TranslateBody, kdb: KorvoDep):
             text=text,
             source=source,
             target=target,
-            speak_target=bool(body.speak_target),
+            speak_target=speak_target,
             playback_target=playback_target,
             board_base=board_base,
             kokoro_lang=kokoro_lang,
@@ -709,19 +745,19 @@ async def translate_google(body: TranslateBody, kdb: KorvoDep):
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"Translation pipeline failed: {e}") from e
 
-    if body.speak_target:
+    if speak_target:
         speak_pending = True
         if playback_target == "board_inject":
             pieces = _split_text_for_streaming_tts(translated) if body.tts_sentence_stream else [translated]
             tts_board_chunks = sum(1 for x in pieces if (x or "").strip())
 
     # Debug comparison logging: what was translated vs what was sent to TTS.
-    tts_input_text = translated if body.speak_target else ""
+    tts_input_text = translated if speak_target else ""
     logger.info(
         "translate_click source_lang=%s target_lang=%s speak_target=%s playback_target=%s voice=%s kokoro_lang=%s source_text=%r translated_text=%r tts_input_text=%r speak_done=%s speak_pending=%s speak_error=%r translate_ms=%d total_ms=%d",
         source,
         target,
-        body.speak_target,
+        speak_target,
         playback_target,
         body.kokoro_voice,
         kokoro_lang,
@@ -739,7 +775,7 @@ async def translate_google(body: TranslateBody, kdb: KorvoDep):
             "ts_utc": datetime.now(timezone.utc).isoformat(),
             "source_language": source,
             "target_language": target,
-            "speak_target": body.speak_target,
+            "speak_target": speak_target,
             "playback_target": playback_target,
             "kokoro_voice": body.kokoro_voice,
             "tts_voice_used": voice_used,
@@ -763,7 +799,7 @@ async def translate_google(body: TranslateBody, kdb: KorvoDep):
         "translated_text": translated,
         "source_language": source,
         "target_language": target,
-        "speak_target": body.speak_target,
+        "speak_target": speak_target,
         "playback_target": playback_target,
         "speak_done": speak_done,
         "speak_pending": speak_pending,
@@ -772,7 +808,7 @@ async def translate_google(body: TranslateBody, kdb: KorvoDep):
         "kokoro_lang": kokoro_lang,
         "tts_voice_used": voice_used,
         "tts_input_text": tts_input_text,
-        "tts_vendor_used": "aws_polly" if aws_polly_enabled and body.speak_target else "kokoro",
+        "tts_vendor_used": "aws_polly" if aws_polly_enabled and speak_target else "kokoro",
         "tts_orchestrator": tts_orchestrator,
         "translate_ms": translate_ms,
         "total_ms": int(round((time.monotonic() - req_started) * 1000.0)),

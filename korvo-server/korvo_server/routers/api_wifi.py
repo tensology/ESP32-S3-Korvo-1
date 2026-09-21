@@ -9,6 +9,7 @@ import threading
 import time
 import re
 
+from korvo_server.board_auth import board_headers
 from korvo_server.config_gen import generate_config
 from korvo_server.deps import KorvoDep
 
@@ -191,7 +192,7 @@ def _sync_wifi_profiles_to_hosts(hosts: list[str], payload: bytes) -> dict:
         req = urllib.request.Request(
             f"http://{host}/api/network/profiles",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=board_headers({"Content-Type": "application/json"}),
             method="POST",
         )
         try:
@@ -241,7 +242,7 @@ def _post_board_led(host: str, payload: dict, timeout: float = 2.5) -> dict:
     req = urllib.request.Request(
         f"http://{host}/api/led",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers=board_headers({"Content-Type": "application/json"}),
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -279,7 +280,7 @@ def _find_reachable_board_status(hosts: list[str]) -> tuple[str | None, dict | N
         timeout_sec = 1.2 if idx < 3 else 0.45
         req = urllib.request.Request(
             f"http://{host}/api/network/status",
-            headers={"Accept": "application/json"},
+            headers=board_headers({"Accept": "application/json"}),
             method="GET",
         )
         try:
@@ -333,6 +334,14 @@ def _run_test_board_led_cue(host: str):
         return
 
 
+def _public_wifi_row(row) -> dict | None:
+    if not row:
+        return None
+    data = dict(row)
+    data.pop("password", None)
+    return data
+
+
 @router.get("/api/wifi")
 def wifi_list(kdb: KorvoDep):
     with kdb.lock:
@@ -344,7 +353,7 @@ def wifi_list(kdb: KorvoDep):
         active = cur.execute("SELECT * FROM wifi_networks WHERE is_active = 1").fetchone()
     return {
         "networks": [dict(r) for r in networks],
-        "active": dict(active) if active else None,
+        "active": _public_wifi_row(active),
     }
 
 
@@ -357,9 +366,13 @@ def wifi_upsert(body: WifiBody, kdb: KorvoDep):
         row = cur.execute("SELECT id FROM wifi_networks WHERE ssid = ?", (body.ssid,)).fetchone()
         any_active = cur.execute("SELECT 1 FROM wifi_networks WHERE is_active = 1 LIMIT 1").fetchone()
         if row:
+            password = body.password or ""
+            if not password.strip():
+                stored = cur.execute("SELECT password FROM wifi_networks WHERE ssid = ?", (body.ssid,)).fetchone()
+                password = stored["password"] if stored else ""
             cur.execute(
                 "UPDATE wifi_networks SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE ssid = ?",
-                (body.password or "", body.ssid),
+                (password, body.ssid),
             )
             if body.set_active:
                 cur.execute("UPDATE wifi_networks SET is_active = 0")

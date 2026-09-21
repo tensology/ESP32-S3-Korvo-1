@@ -1,3 +1,4 @@
+import secrets
 import shutil
 import sqlite3
 import threading
@@ -31,6 +32,18 @@ def init_db(conn: sqlite3.Connection) -> None:
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME
         );
+        CREATE TABLE IF NOT EXISTS arctone_people (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            language_code TEXT NOT NULL,
+            language_name TEXT NOT NULL,
+            target_language_code TEXT NOT NULL,
+            target_language_name TEXT NOT NULL,
+            speaker_label TEXT NOT NULL,
+            authenticated INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME
+        );
         """
     )
     for stmt in (
@@ -42,6 +55,19 @@ def init_db(conn: sqlite3.Connection) -> None:
         except sqlite3.OperationalError:
             pass
     conn.commit()
+
+
+def ensure_board_token(conn: sqlite3.Connection) -> str:
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", ("board_api_token",)).fetchone()
+    if row and (row["value"] or "").strip():
+        return row["value"].strip()
+    token = secrets.token_urlsafe(24)
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+        ("board_api_token", token),
+    )
+    conn.commit()
+    return token
 
 
 @contextmanager
@@ -89,6 +115,7 @@ class KorvoDB:
         migrate_legacy_sqlite_if_needed(path)
         self.conn = connect(path)
         init_db(self.conn)
+        self.board_token = ensure_board_token(self.conn)
         if hydrate_wifi_db_from_external_sources(self.conn):
             print("[korvo] WiFi networks were empty — restored from external korvo.db and/or korvo_config.h.")
         self.lock = threading.Lock()

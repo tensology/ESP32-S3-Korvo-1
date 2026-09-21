@@ -3,9 +3,10 @@ import re
 import subprocess
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from korvo_server.config import BIN_DIR
+from korvo_server.lan_guard import host_allowed, split_host_port
 
 router = APIRouter(prefix="/api", tags=["networks"])
 
@@ -138,9 +139,12 @@ def list_networks(
                     )
 
     if source in ("all", "esp32"):
+        scan_host = split_host_port(esp_host)
+        if not host_allowed(scan_host):
+            raise HTTPException(400, "esp_host is not a LAN address")
         try:
             out = subprocess.run(
-                ["curl", "-s", "--connect-timeout", "1", "--max-time", "2", f"http://{esp_host}/scan"],
+                ["curl", "-s", "--connect-timeout", "1", "--max-time", "2", "--", f"http://{scan_host}/scan"],
                 capture_output=True,
                 text=True,
                 timeout=4,

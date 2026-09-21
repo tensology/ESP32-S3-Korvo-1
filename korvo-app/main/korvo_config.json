@@ -1,24 +1,12 @@
 {
-  "wifi": {
-    "ssid": "The Von",
-    "password": "Sausage69"
-  },
+  "wifi": null,
   "settings": {
-    "assemblyai_api_key": "bhnmfghkjmghjkg",
-    "openai_api_key": "",
-    "anthropic_api_key": "",
-    "google_gemini_api_key": "",
-    "elevenlabs_api_key": "",
-    "aws_access_key_id": "",
-    "aws_secret_access_key": "",
-    "aws_region": "eu-west-1",
-    "aws_session_token": "",
-    "aws_polly_enabled": "0",
-    "wake_word": "hilexin",
-    "agent_endpoint": "",
     "esp_ip": "192.168.1.28",
     "last_board_host": "korvo.local",
-    "last_board_sta_ip": "192.168.1.28"
+    "last_board_sta_ip": "192.168.1.28",
+    "wake_word": "hilexin",
+    "agent_endpoint": "",
+    "board_api_token": ""
   },
-  "generated_at": "2026-04-28T10:04:21.748985+00:00"
+  "generated_at": "2026-09-21T21:02:49.023294+00:00"
 }

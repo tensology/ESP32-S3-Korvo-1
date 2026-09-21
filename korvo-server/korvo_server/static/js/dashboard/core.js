@@ -1,3 +1,10 @@
+    function korvoBoardHeaders(extra) {
+      const headers = Object.assign({}, extra || {});
+      if (window.__korvoBoardToken) headers['X-Korvo-Token'] = window.__korvoBoardToken;
+      return headers;
+    }
+    window.korvoBoardHeaders = korvoBoardHeaders;
+
     // ─── Toast ───
     function toast(msg, type = 'success') {
       const el = document.getElementById('toast');
@@ -379,43 +386,31 @@
       if (data.wake_word && wakeWordEl) wakeWordEl.value = data.wake_word;
       const agentEndpointEl = document.getElementById('agentEndpoint');
       if (data.agent_endpoint && agentEndpointEl) agentEndpointEl.value = data.agent_endpoint;
-      if (typeof data.assemblyai_api_key === 'string') {
-        const aaiEl = document.getElementById('assemblyAiApiKey');
-        if (aaiEl) aaiEl.value = data.assemblyai_api_key;
-        const thirdAaiEl = document.getElementById('thirdPartyAssemblyAiApiKey');
-        if (thirdAaiEl) thirdAaiEl.value = data.assemblyai_api_key;
-      }
-      if (typeof data.openai_api_key === 'string') {
-        const openaiEl = document.getElementById('thirdPartyOpenAiApiKey');
-        if (openaiEl) openaiEl.value = data.openai_api_key;
-      }
-      if (typeof data.anthropic_api_key === 'string') {
-        const anthropicEl = document.getElementById('thirdPartyAnthropicApiKey');
-        if (anthropicEl) anthropicEl.value = data.anthropic_api_key;
-      }
-      if (typeof data.google_gemini_api_key === 'string') {
-        const geminiEl = document.getElementById('thirdPartyGoogleGeminiApiKey');
-        if (geminiEl) geminiEl.value = data.google_gemini_api_key;
-      }
-      if (typeof data.elevenlabs_api_key === 'string') {
-        const elevenlabsEl = document.getElementById('thirdPartyElevenLabsApiKey');
-        if (elevenlabsEl) elevenlabsEl.value = data.elevenlabs_api_key;
-      }
-      if (typeof data.aws_access_key_id === 'string') {
-        const el = document.getElementById('thirdPartyAwsAccessKeyId');
-        if (el) el.value = data.aws_access_key_id;
-      }
-      if (typeof data.aws_secret_access_key === 'string') {
-        const el = document.getElementById('thirdPartyAwsSecretAccessKey');
-        if (el) el.value = data.aws_secret_access_key;
-      }
+      window.__korvoBoardToken = (data.board_api_token || '').trim();
+      window.__korvoSecretsSet = {};
+      window.__korvoAwsPollyEnabled = data.aws_polly_enabled || '0';
+      const secretFields = [
+        ['assemblyai_api_key', 'assemblyAiApiKey'],
+        ['assemblyai_api_key', 'thirdPartyAssemblyAiApiKey'],
+        ['openai_api_key', 'thirdPartyOpenAiApiKey'],
+        ['anthropic_api_key', 'thirdPartyAnthropicApiKey'],
+        ['google_gemini_api_key', 'thirdPartyGoogleGeminiApiKey'],
+        ['elevenlabs_api_key', 'thirdPartyElevenLabsApiKey'],
+        ['aws_access_key_id', 'thirdPartyAwsAccessKeyId'],
+        ['aws_secret_access_key', 'thirdPartyAwsSecretAccessKey'],
+        ['aws_session_token', 'thirdPartyAwsSessionToken'],
+      ];
+      secretFields.forEach(([key, id]) => {
+        const el = document.getElementById(id);
+        const saved = data[key + '_set'] === '1';
+        window.__korvoSecretsSet[key] = saved;
+        if (!el) return;
+        el.value = '';
+        el.placeholder = saved ? 'Saved. Leave blank to keep.' : '';
+      });
       if (typeof data.aws_region === 'string') {
         const el = document.getElementById('thirdPartyAwsRegion');
-        if (el) el.value = data.aws_region;
-      }
-      if (typeof data.aws_session_token === 'string') {
-        const el = document.getElementById('thirdPartyAwsSessionToken');
-        if (el) el.value = data.aws_session_token;
+        if (el && data.aws_region) el.value = data.aws_region;
       }
       const awsStatusEl = document.getElementById('thirdPartyAwsPollyStatus');
       if (awsStatusEl && typeof data.aws_polly_enabled === 'string') {
@@ -1059,7 +1054,7 @@
           mode: 'cors',
           credentials: 'omit',
           cache: 'no-store',
-          headers: { 'Content-Type': 'application/json' },
+          headers: korvoBoardHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify(data),
           ...(postSignal ? { signal: postSignal } : {}),
         });
@@ -1121,6 +1116,7 @@
         try {
           const res = await fetch(`http://${espIp}/api/led`, {
             cache: 'no-store',
+            headers: korvoBoardHeaders(),
             signal: AbortSignal.timeout(_ledPollTimeoutMs()),
           });
           if (!res.ok) {
@@ -1655,7 +1651,7 @@
       document.querySelectorAll('.tab-btn').forEach((btn) => {
         btn.addEventListener('click', () => korvoSwitchTab(btn.getAttribute('data-tab')));
       });
-      const valid = ['settings', 'wifi', 'build', 'bluetooth', 'led', 'audio', 'transcript', 'translation', 'third-party', 'docs'];
+      const valid = ['settings', 'wifi', 'build', 'bluetooth', 'led', 'audio', 'transcript', 'translation', 'arctone', 'third-party', 'docs'];
       let t = '';
       try {
         t = (localStorage.getItem('korvo_dashboard_tab') || '').trim();
@@ -1700,6 +1696,7 @@
         if (typeof initAudioSection === 'function') tasks.push(Promise.resolve().then(() => initAudioSection()));
         if (typeof initBluetoothSection === 'function') tasks.push(Promise.resolve().then(() => initBluetoothSection()));
         if (typeof initTranslationSection === 'function') tasks.push(Promise.resolve().then(() => initTranslationSection()));
+        if (typeof initArctoneSection === 'function') tasks.push(Promise.resolve().then(() => initArctoneSection()));
         if (typeof initThirdPartySection === 'function') tasks.push(Promise.resolve().then(() => initThirdPartySection()));
         await Promise.allSettled(tasks);
       } finally {

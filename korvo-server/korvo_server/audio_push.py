@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from korvo_server.board_auth import board_headers
+
 
 def normalize_board_base(raw: str) -> str:
     value = (raw or "").strip()
@@ -152,7 +154,7 @@ async def _post_inject_chunk_with_backpressure(
             try:
                 res = await client.post(
                     inject_url,
-                    headers={"Content-Type": "application/octet-stream", "Connection": "close"},
+                    headers=board_headers({"Content-Type": "application/octet-stream", "Connection": "close"}),
                     content=piece,
                 )
                 break

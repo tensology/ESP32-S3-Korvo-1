@@ -19,6 +19,7 @@ sdkconfig
 korvo-server/korvo/
 korvo-server/__pycache__/
 korvo-server/**/__pycache__/
+korvo-server/arctone_samples/
 korvo-server/recordings/*.wav
 korvo-server/recordings/*.mp3
 korvo-server/recordings/*.tmp
